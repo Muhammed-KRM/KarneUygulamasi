@@ -1,0 +1,29 @@
+<div class="comment-section">
+  <h3>Yorumlar ({{ comments.length }})</h3>
+
+  <div class="comment-form" *ngIf="authService.isAuthenticated()">
+    <textarea [(ngModel)]="newComment" placeholder="Yorum yazın..." class="comment-input"></textarea>
+    <button class="btn btn-primary" (click)="addComment()" [disabled]="loading || !newComment.trim()">
+      Gönder
+    </button>
+  </div>
+
+  <div class="comments-list">
+    <div class="comment-item" *ngFor="let comment of comments">
+      <div class="comment-header">
+        <strong>{{ comment.username }}</strong>
+        <small>{{ comment.createdAt | dateFormat:'dd/MM/yyyy HH:mm' }}</small>
+        <button class="btn-delete" *ngIf="authService.user?.id === comment.userId" 
+                (click)="deleteComment(comment.id)">
+          Sil
+        </button>
+      </div>
+      <p>{{ comment.content }}</p>
+    </div>
+  </div>
+
+  <div *ngIf="comments.length === 0" class="empty">
+    <p>Henüz yorum yok</p>
+  </div>
+</div>
+

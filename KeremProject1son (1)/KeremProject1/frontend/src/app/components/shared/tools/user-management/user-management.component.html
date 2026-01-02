@@ -1,0 +1,130 @@
+<div class="user-management-container">
+  <div class="header">
+    <h2>Kullanıcı Yönetimi</h2>
+    <p class="subtitle">Tüm kullanıcıları görüntüleyin ve yönetin</p>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters-section">
+    <div class="search-bar">
+      <input 
+        type="text" 
+        [(ngModel)]="searchQuery" 
+        (keyup.enter)="search()"
+        placeholder="Kullanıcı adı ara..." 
+        class="form-control"
+      />
+      <select [(ngModel)]="isActive" class="form-control">
+        <option [ngValue]="undefined">Tüm Durumlar</option>
+        <option [ngValue]="true">Aktif</option>
+        <option [ngValue]="false">Pasif</option>
+      </select>
+      <button class="btn btn-primary" (click)="search()">
+        <i class="bi bi-search"></i> Ara
+      </button>
+      <button class="btn btn-secondary" (click)="clearFilters()">
+        <i class="bi bi-x-circle"></i> Temizle
+      </button>
+    </div>
+  </div>
+
+  <!-- Error and Success Messages -->
+  <div *ngIf="errorMessage" class="alert alert-error">
+    <i class="bi bi-exclamation-triangle"></i> {{ errorMessage }}
+  </div>
+  <div *ngIf="Message" class="alert alert-success">
+    <i class="bi bi-check-circle"></i> {{ Message }}
+  </div>
+
+  <!-- Loading -->
+  <div *ngIf="loading" class="loading">
+    <div class="spinner"></div>
+    <p>Yükleniyor...</p>
+  </div>
+
+  <!-- Users Table -->
+  <div class="table-container" *ngIf="!loading">
+    <div class="table-responsive">
+      <table class="users-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Kullanıcı Adı</th>
+            <th>MAL Username</th>
+            <th>Liste Sayısı</th>
+            <th>Takipçi</th>
+            <th>Son Güncelleme</th>
+            <th>İşlemler</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr *ngFor="let user of users">
+            <td>{{ user.id }}</td>
+            <td>
+              <div class="user-info">
+                <img 
+                  [src]="user.userImageLink || 'https://ui-avatars.com/api/?name=' + user.username" 
+                  [alt]="user.username"
+                  class="user-avatar"
+                />
+                <span>{{ user.username }}</span>
+              </div>
+            </td>
+            <td>{{ user.malUsername || '-' }}</td>
+            <td>{{ user.totalLists }}</td>
+            <td>{{ user.totalFollowers }}</td>
+            <td>{{ user.modTime | date:'short' }}</td>
+            <td>
+              <div class="action-buttons">
+                <button class="btn btn-sm btn-primary" (click)="selectUserForUpdate(user)">
+                  <i class="bi bi-pencil"></i> Düzenle
+                </button>
+                <button class="btn btn-sm btn-danger" (click)="deleteUser(user)">
+                  <i class="bi bi-trash"></i> Sil
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Empty State -->
+    <div *ngIf="users.length === 0" class="empty-state">
+      <i class="bi bi-people"></i>
+      <p>Kullanıcı bulunamadı</p>
+    </div>
+
+    <!-- Pagination -->
+    <div class="pagination" *ngIf="totalPages > 1">
+      <button 
+        class="btn btn-sm" 
+        [disabled]="page === 1" 
+        (click)="goToPage(page - 1)">
+        <i class="bi bi-chevron-left"></i> Önceki
+      </button>
+      <span class="page-info">
+        Sayfa {{ page }} / {{ totalPages }} (Toplam: {{ totalCount }})
+      </span>
+      <button 
+        class="btn btn-sm" 
+        [disabled]="page === totalPages" 
+        (click)="goToPage(page + 1)">
+        Sonraki <i class="bi bi-chevron-right"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Update User Modal -->
+  <div class="modal-overlay" *ngIf="selectedUser" (click)="closeUpdateModal()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Kullanıcı Düzenle</h2>
+        <button class="btn-close" (click)="closeUpdateModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <app-user-management-update-modal [user]="selectedUser" (userUpdated)="closeUpdateModal()"></app-user-management-update-modal>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,118 @@
+<nav class="navbar">
+  <div class="navbar-container">
+    <div class="navbar-left">
+      <a routerLink="/" class="logo">
+        <span class="logo-text">Anime</span><span class="logo-highlight">Ranker</span>
+      </a>
+      
+      <div class="desktop-menu">
+        <a routerLink="/discover" routerLinkActive="active" class="nav-item">
+          <i class="bi bi-compass"></i> Keşfet
+        </a>
+        <a routerLink="/templates" routerLinkActive="active" class="nav-item">
+          <i class="bi bi-grid"></i> Şablonlar
+        </a>
+        <a routerLink="/search" routerLinkActive="active" class="nav-item">
+          <i class="bi bi-search"></i> Arama
+        </a>
+        
+        <!-- More Dropdown -->
+        <div class="nav-dropdown-container">
+           <span class="nav-item dropdown-trigger" (click)="toggleMoreMenu()">
+             Diğer <i class="bi bi-caret-down-fill"></i>
+           </span>
+           <div class="nav-dropdown-menu" [class.show]="isMoreMenuOpen">
+             <a routerLink="/tools" class="dropdown-item" (click)="isMoreMenuOpen=false"><i class="bi bi-tools"></i> Araçlar</a>
+             <a routerLink="/about" class="dropdown-item" (click)="isMoreMenuOpen=false"><i class="bi bi-info-circle"></i> Hakkımızda</a>
+             <a routerLink="/mal/connect" class="dropdown-item" *ngIf="isAuthenticated()" (click)="isMoreMenuOpen=false"><i class="bi bi-link"></i> MAL Bağlantısı</a>
+           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Orta kısım boş bırakıldı -->
+
+    <div class="navbar-right">
+      <!-- Liste Oluştur Dropdown -->
+      <div class="create-dropdown-container">
+        <button class="btn-create" (click)="toggleCreateMenu()">
+          <i class="bi bi-plus-lg"></i> Oluştur
+        </button>
+        <div class="create-dropdown-menu" [class.show]="isCreateMenuOpen">
+          <a routerLink="/list/create" class="dropdown-item" (click)="isCreateMenuOpen=false">
+            <i class="bi bi-pencil-square"></i>
+            <div>
+              <span>Manuel Liste</span>
+              <small>Sıfırdan liste oluştur</small>
+            </div>
+          </a>
+          <a routerLink="/list/generate" class="dropdown-item" (click)="isCreateMenuOpen=false">
+             <i class="bi bi-magic"></i>
+             <div>
+               <span>Otomatik Liste</span>
+               <small>MAL verilerini kullan</small>
+             </div>
+          </a>
+        </div>
+      </div>
+
+      <div class="auth-buttons" *ngIf="!currentUser">
+        <a routerLink="/login" class="nav-btn login-btn">Giriş</a>
+        <a routerLink="/signin" class="nav-btn signup-btn">Kayıt</a>
+      </div>
+
+      <div class="user-menu" *ngIf="currentUser">
+        <div class="user-trigger" (click)="toggleUserMenu()">
+          <div class="user-avatar">
+             <ng-container *ngIf="getUserAvatar(); else defaultAvatar">
+               <img [src]="getUserAvatar()" alt="Profil" />
+             </ng-container>
+             <ng-template #defaultAvatar>
+               <i class="bi bi-person-circle"></i>
+             </ng-template>
+          </div>
+          <span class="username">{{ getUserName() }}</span>
+          <i class="bi bi-caret-down-fill"></i>
+        </div>
+        
+        <div class="dropdown-menu" [class.show]="isUserMenuOpen">
+          <div class="menu-header">
+            <span class="greeting">Merhaba, {{ getUserName() }}</span>
+          </div>
+          <div class="divider"></div>
+          <a [routerLink]="['/profile', getUserId()]" class="dropdown-item"><i class="bi bi-person"></i> Profilim</a>
+          <a routerLink="/dashboard" class="dropdown-item"><i class="bi bi-speedometer2"></i> Dashboard</a>
+          <a routerLink="/notifications" class="dropdown-item">
+            <i class="bi bi-bell"></i> Bildirimler
+            <span class="badge" *ngIf="unreadNotifications > 0">{{ unreadNotifications }}</span>
+          </a>
+          <a routerLink="/profile/settings" class="dropdown-item"><i class="bi bi-gear"></i> Ayarlar</a>
+          <div class="divider"></div>
+          <a (click)="logout()" class="dropdown-item text-danger"><i class="bi bi-box-arrow-right"></i> Çıkış Yap</a>
+        </div>
+      </div>
+
+      <button class="mobile-toggle" (click)="toggleMenu()">
+        <i class="bi bi-list"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Menu -->
+  <div class="mobile-menu" [class.active]="isMenuOpen">
+    <a routerLink="/discover" (click)="isMenuOpen=false"><i class="bi bi-compass"></i> Keşfet</a>
+    <a routerLink="/templates" (click)="isMenuOpen=false"><i class="bi bi-grid"></i> Şablonlar</a>
+    <a routerLink="/search" (click)="isMenuOpen=false"><i class="bi bi-search"></i> Arama</a>
+    <div class="divider"></div>
+    <a routerLink="/list/create" (click)="isMenuOpen=false"><i class="bi bi-pencil-square"></i> Liste Oluştur</a>
+    <a routerLink="/list/generate" (click)="isMenuOpen=false"><i class="bi bi-magic"></i> Otomatik Oluştur</a>
+    <div class="divider"></div>
+    <a routerLink="/tools" (click)="isMenuOpen=false"><i class="bi bi-tools"></i> Araçlar</a>
+    <a routerLink="/about" (click)="isMenuOpen=false"><i class="bi bi-info-circle"></i> Hakkımızda</a>
+    <div class="divider"></div>
+    <ng-container *ngIf="!currentUser">
+      <a routerLink="/login" (click)="isMenuOpen=false" class="mobile-auth-btn">Giriş Yap</a>
+      <a routerLink="/signin" (click)="isMenuOpen=false" class="mobile-auth-btn highlight">Kayıt Ol</a>
+    </ng-container>
+  </div>
+</nav>

@@ -1,0 +1,168 @@
+@use 'src/app/styles/variables' as *;
+
+.about-container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: $spacing-2xl $spacing-xl;
+  min-height: calc(100vh - 200px);
+}
+
+.about-header {
+  text-align: center;
+  margin-bottom: $spacing-3xl;
+
+  h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    color: $accent-color;
+    margin-bottom: $spacing-md;
+    background: linear-gradient(135deg, $accent-color, $primary-color);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 1.2rem;
+    color: $text-secondary;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+}
+
+.about-content {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-3xl;
+}
+
+.about-section {
+  background: $background-card;
+  border-radius: $radius-lg;
+  padding: $spacing-2xl;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  h2 {
+    font-size: 2rem;
+    font-weight: 700;
+    color: $accent-color;
+    margin-bottom: $spacing-lg;
+    border-left: 4px solid $accent-color;
+    padding-left: $spacing-md;
+  }
+
+  p {
+    color: $text-secondary;
+    line-height: 1.8;
+    font-size: 1.05rem;
+    margin-bottom: $spacing-md;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+}
+
+.features-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.feature-item {
+  display: flex;
+  gap: $spacing-lg;
+  align-items: flex-start;
+
+  i {
+    font-size: 2.5rem;
+    color: $accent-color;
+    flex-shrink: 0;
+    margin-top: $spacing-xs;
+  }
+
+  h3 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: $text-color;
+    margin-bottom: $spacing-sm;
+  }
+
+  p {
+    margin-bottom: $spacing-xs;
+
+    strong {
+      color: $primary-color;
+    }
+  }
+}
+
+.steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.step-item {
+  display: flex;
+  gap: $spacing-lg;
+  align-items: flex-start;
+
+  .step-number {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, $accent-color, $primary-color);
+    color: $text-color;
+    font-size: 1.5rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 4px 12px rgba($accent-color, 0.4);
+  }
+
+  h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: $text-color;
+    margin-bottom: $spacing-xs;
+  }
+
+  p {
+    color: $text-secondary;
+    margin: 0;
+  }
+}
+
+// Responsive
+@media (max-width: $breakpoint-md) {
+  .about-container {
+    padding: $spacing-xl $spacing-lg;
+  }
+
+  .about-header h1 {
+    font-size: 2rem;
+  }
+
+  .about-section {
+    padding: $spacing-xl;
+
+    h2 {
+      font-size: 1.5rem;
+    }
+  }
+
+  .feature-item,
+  .step-item {
+    flex-direction: column;
+    text-align: center;
+
+    i,
+    .step-number {
+      margin: 0 auto;
+    }
+  }
+}
+

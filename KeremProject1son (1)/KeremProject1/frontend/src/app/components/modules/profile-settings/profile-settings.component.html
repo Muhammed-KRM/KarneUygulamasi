@@ -1,0 +1,373 @@
+<div class="settings-container">
+  <!-- Debug: Component loaded -->
+  <div *ngIf="loading" style="text-align: center; padding: 2rem; color: white;">
+    <p>Yükleniyor...</p>
+  </div>
+  
+  <div class="page-header">
+    <h1>Ayarlar</h1>
+    <p class="subtitle">Profil bilgilerinizi ve hesap tercihlerinizi yönetin</p>
+  </div>
+
+  <!-- Tab Navigation -->
+  <div class="tabs-container">
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'profile'"
+      (click)="setTab('profile')">
+      <i class="bi bi-person"></i>
+      <span>Profil</span>
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'password'"
+      (click)="setTab('password')">
+      <i class="bi bi-lock"></i>
+      <span>Şifre</span>
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'connections'"
+      (click)="setTab('connections')">
+      <i class="bi bi-link-45deg"></i>
+      <span>Bağlantılar</span>
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'appearance'"
+      (click)="setTab('appearance')">
+      <i class="bi bi-palette"></i>
+      <span>Görünüm</span>
+    </button>
+    <button 
+      class="tab-button" 
+      [class.active]="activeTab === 'account'"
+      (click)="setTab('account')">
+      <i class="bi bi-gear"></i>
+      <span>Hesap</span>
+    </button>
+  </div>
+
+  <!-- Tab Content -->
+  <div class="tab-content">
+    <!-- Profile Tab -->
+    <div class="tab-panel" *ngIf="activeTab === 'profile'">
+      <div class="settings-card">
+        <h2>
+          <i class="bi bi-person-circle"></i>
+          Profil Bilgileri
+        </h2>
+        
+        <div class="profile-image-section">
+          <div class="avatar-wrapper">
+            <img [src]="getPreviewAvatar()" alt="Avatar" class="avatar" />
+            <label class="upload-overlay">
+              <i class="bi bi-camera-fill"></i>
+              <input type="file" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" (change)="onFileSelected($event)" hidden />
+            </label>
+          </div>
+          <div class="image-info">
+            <p class="upload-hint">Resmi değiştirmek için üzerine tıklayın</p>
+            <p class="file-info">Maksimum 5MB • JPG, PNG, GIF, WEBP</p>
+            <button 
+              class="btn btn-primary btn-sm" 
+              (click)="uploadImage()" 
+              [disabled]="!selectedFile || uploading">
+              <i class="bi bi-upload" *ngIf="!uploading"></i>
+              <span *ngIf="uploading">Yükleniyor...</span>
+              <span *ngIf="!uploading">Kaydet</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="form-section">
+          <div class="form-group">
+            <label for="username">
+              <i class="bi bi-person"></i>
+              Kullanıcı Adı
+            </label>
+            <input 
+              type="text" 
+              id="username"
+              [(ngModel)]="username" 
+              class="form-control" 
+              placeholder="Kullanıcı adınızı girin"
+              minlength="3"
+              maxlength="50"
+            />
+            <small class="form-hint">3-50 karakter arası olmalıdır</small>
+          </div>
+
+          <div class="form-group">
+            <label for="malUsername">
+              <i class="bi bi-link-45deg"></i>
+              MyAnimeList Kullanıcı Adı
+            </label>
+            <input 
+              type="text" 
+              id="malUsername"
+              [(ngModel)]="malUsername" 
+              class="form-control" 
+              placeholder="MAL kullanıcı adınızı girin (opsiyonel)"
+              maxlength="50"
+            />
+            <small class="form-hint">MAL hesabınızı bağlamak için kullanıcı adınızı girin</small>
+          </div>
+
+          <button 
+            class="btn btn-primary" 
+            (click)="updateProfile()" 
+            [disabled]="loading || !username || username.length < 3">
+            <i class="bi bi-check-circle" *ngIf="!loading"></i>
+            <span *ngIf="loading">Kaydediliyor...</span>
+            <span *ngIf="!loading">Bilgileri Güncelle</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Password Tab -->
+    <div class="tab-panel" *ngIf="activeTab === 'password'">
+      <div class="settings-card">
+        <h2>
+          <i class="bi bi-shield-lock"></i>
+          Şifre Değiştir
+        </h2>
+
+        <div class="form-section">
+          <div class="form-group">
+            <label for="currentPassword">
+              <i class="bi bi-key"></i>
+              Mevcut Şifre
+            </label>
+            <input 
+              type="password" 
+              id="currentPassword"
+              [(ngModel)]="currentPassword" 
+              class="form-control" 
+              placeholder="Mevcut şifrenizi girin"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="newPassword">
+              <i class="bi bi-key-fill"></i>
+              Yeni Şifre
+            </label>
+            <input 
+              type="password" 
+              id="newPassword"
+              [(ngModel)]="newPassword" 
+              class="form-control" 
+              placeholder="Yeni şifrenizi girin"
+              minlength="6"
+              (input)="onPasswordChange()"
+            />
+            <small class="form-hint">En az 6 karakter olmalıdır</small>
+            
+            <!-- Password Strength Indicator -->
+            <div class="password-strength" *ngIf="newPassword">
+              <div class="strength-bar">
+                <div 
+                  class="strength-fill" 
+                  [style.width.%]="(passwordStrength / 5) * 100"
+                  [style.background-color]="getPasswordStrengthColor()">
+                </div>
+              </div>
+              <span class="strength-label" [style.color]="getPasswordStrengthColor()">
+                {{ passwordStrengthLabel }}
+              </span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="confirmPassword">
+              <i class="bi bi-key-fill"></i>
+              Yeni Şifre (Tekrar)
+            </label>
+            <input 
+              type="password" 
+              id="confirmPassword"
+              [(ngModel)]="confirmPassword" 
+              class="form-control" 
+              placeholder="Yeni şifrenizi tekrar girin"
+              minlength="6"
+            />
+            <small class="form-hint" *ngIf="newPassword && confirmPassword && newPassword !== confirmPassword" style="color: #ef4444;">
+              Şifreler eşleşmiyor!
+            </small>
+          </div>
+
+          <button 
+            class="btn btn-primary" 
+            (click)="changePassword()" 
+            [disabled]="loading || !currentPassword || !newPassword || !confirmPassword || newPassword !== confirmPassword || newPassword.length < 6">
+            <i class="bi bi-check-circle" *ngIf="!loading"></i>
+            <span *ngIf="loading">Değiştiriliyor...</span>
+            <span *ngIf="!loading">Şifreyi Değiştir</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connections Tab -->
+    <div class="tab-panel" *ngIf="activeTab === 'connections'">
+      <div class="settings-card">
+        <h2>
+          <i class="bi bi-link-45deg"></i>
+          Bağlantılar
+        </h2>
+
+        <div class="connection-item">
+          <div class="connection-info">
+            <div class="connection-icon mal-icon">
+              <i class="bi bi-link-45deg"></i>
+            </div>
+            <div class="connection-details">
+              <span class="connection-name">MyAnimeList</span>
+              <span class="connection-status" [class.connected]="malUsername">
+                <i class="bi" [class.bi-check-circle-fill]="malUsername" [class.bi-x-circle]="!malUsername"></i>
+                {{ malUsername ? 'Bağlı: ' + malUsername : 'Bağlı Değil' }}
+              </span>
+            </div>
+          </div>
+          <div class="connection-actions">
+            <button 
+              class="btn btn-outline-primary btn-sm" 
+              (click)="connectMAL()"
+              *ngIf="!malUsername">
+              <i class="bi bi-plus-circle"></i>
+              Bağla
+            </button>
+            <button 
+              class="btn btn-outline-danger btn-sm" 
+              (click)="disconnectMAL()"
+              *ngIf="malUsername">
+              <i class="bi bi-x-circle"></i>
+              Bağlantıyı Kaldır
+            </button>
+          </div>
+        </div>
+
+        <div class="connection-info-box">
+          <i class="bi bi-info-circle"></i>
+          <p>MAL hesabınızı bağlayarak listelerinizi otomatik olarak içe aktarabilirsiniz.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Appearance Tab -->
+    <div class="tab-panel" *ngIf="activeTab === 'appearance'">
+      <div class="settings-card">
+        <h2>
+          <i class="bi bi-palette"></i>
+          Görünüm Ayarları
+        </h2>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label">
+              <i class="bi" [class.bi-moon-stars-fill]="currentTheme === 'dark'" [class.bi-sun-fill]="currentTheme === 'light'"></i>
+              <span>Tema</span>
+            </div>
+            <p class="setting-description">{{ currentTheme === 'dark' ? 'Koyu tema aktif' : 'Açık tema aktif' }}</p>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch">
+              <input 
+                type="checkbox" 
+                [checked]="currentTheme === 'light'"
+                (change)="toggleTheme()"
+              />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label">
+              <i class="bi bi-bell"></i>
+              <span>Bildirimler</span>
+            </div>
+            <p class="setting-description">Sistem bildirimlerini etkinleştir</p>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch">
+              <input 
+                type="checkbox" 
+                [(ngModel)]="notificationsEnabled"
+                (change)="onNotificationsToggle()"
+              />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="setting-item">
+          <div class="setting-info">
+            <div class="setting-label">
+              <i class="bi bi-envelope"></i>
+              <span>E-posta Bildirimleri</span>
+            </div>
+            <p class="setting-description">E-posta ile bildirim al</p>
+          </div>
+          <div class="setting-control">
+            <label class="toggle-switch">
+              <input 
+                type="checkbox" 
+                [(ngModel)]="emailNotifications"
+                (change)="onEmailNotificationsToggle()"
+              />
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account Tab -->
+    <div class="tab-panel" *ngIf="activeTab === 'account'">
+      <div class="settings-card danger-zone">
+        <h2>
+          <i class="bi bi-exclamation-triangle"></i>
+          Hesap Yönetimi
+        </h2>
+
+        <div class="danger-zone-content">
+          <div class="warning-box">
+            <i class="bi bi-exclamation-triangle-fill"></i>
+            <div>
+              <h3>Hesabı Sil</h3>
+              <p>Hesabınızı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.</p>
+            </div>
+          </div>
+
+          <div class="delete-options">
+            <label class="checkbox-label">
+              <input 
+                type="checkbox" 
+                [(ngModel)]="hardDelete"
+              />
+              <span>Kalıcı olarak sil (tüm veriler silinir)</span>
+            </label>
+            <small class="form-hint">Bu seçeneği işaretlerseniz, hesabınız ve tüm verileriniz kalıcı olarak silinecektir.</small>
+          </div>
+
+          <button 
+            class="btn btn-danger" 
+            (click)="deleteAccount()"
+            [disabled]="loading">
+            <i class="bi bi-trash" *ngIf="!loading"></i>
+            <span *ngIf="loading">İşleniyor...</span>
+            <span *ngIf="!loading">{{ hardDelete ? 'Hesabı Kalıcı Olarak Sil' : 'Hesabı Devre Dışı Bırak' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

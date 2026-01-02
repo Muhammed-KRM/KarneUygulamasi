@@ -1,0 +1,37 @@
+<div class="app-layout">
+  <!-- Navbar (Tam genişlik, kendi içinde container'ı var) -->
+  <header class="navbar-section">
+    <app-navbar></app-navbar>
+  </header>
+
+  <!-- Ana Gövde (Reklam | İçerik | Reklam) -->
+  <div class="main-container">
+    
+    <!-- Sol Reklam/Boşluk Alanı (Geniş ekranlarda görünür) -->
+    <aside class="ad-space ad-left">
+      <div class="ad-placeholder">
+        <span>Reklam Alanı</span>
+      </div>
+    </aside>
+
+    <!-- Ana İçerik -->
+    <main class="content-area">
+      <router-outlet></router-outlet>
+    </main>
+
+    <!-- Sağ Reklam/Boşluk Alanı (Geniş ekranlarda görünür) -->
+    <aside class="ad-space ad-right">
+      <div class="ad-placeholder">
+        <span>Reklam Alanı</span>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer-section">
+    <div class="footer-content">
+      <p>&copy; 2025 AnimeRanker. Tüm hakları saklıdır.</p>
+    </div>
+  </footer>
+</div>

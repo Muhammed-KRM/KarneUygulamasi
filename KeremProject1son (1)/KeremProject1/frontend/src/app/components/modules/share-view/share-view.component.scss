@@ -1,0 +1,55 @@
+@use 'sass:color';
+@use 'src/app/styles/variables' as *;
+
+.share-view-container {
+  padding: $spacing-xl;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-2xl;
+}
+
+.btn {
+  padding: $spacing-sm $spacing-lg;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all $transition-base ease;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, $accent-color, color.adjust($accent-color, $lightness: -10%));
+  color: $text-color;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba($accent-color, 0.4);
+  }
+}
+
+.btn-secondary {
+  background: $background-card;
+  color: $text-color;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  &:hover {
+    background: $background-hover;
+    border-color: rgba($accent-color, 0.3);
+  }
+}
+
+.loading {
+  text-align: center;
+  padding: $spacing-2xl;
+  color: $text-secondary;
+}
+

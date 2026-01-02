@@ -1,0 +1,121 @@
+<div class="dashboard-container">
+  <div class="header">
+    <h1>Dashboard</h1>
+    <button class="btn btn-primary" routerLink="/list/create">Yeni Liste Oluştur</button>
+  </div>
+
+  <div class="quick-actions">
+    <h2>Hızlı Erişim</h2>
+    <div class="action-buttons">
+      <button class="btn btn-outline-primary" (click)="generateByScore()" [disabled]="generating">
+        <i class="bi bi-star"></i> Puana Göre Liste Oluştur
+      </button>
+      <button class="btn btn-outline-primary" (click)="generateByYear()" [disabled]="generating">
+        <i class="bi bi-calendar"></i> Yıla Göre Liste Oluştur
+      </button>
+      <button class="btn btn-outline-primary" (click)="generateByGenre()" [disabled]="generating">
+        <i class="bi bi-tags"></i> Kategoriye Göre Liste Oluştur
+      </button>
+    </div>
+    <p class="quick-actions-desc">MAL verilerinize göre otomatik liste oluşturun</p>
+  </div>
+
+  <div class="trending-section" *ngIf="trendingLists.length > 0">
+    <h2>🔥 Trending Listeler</h2>
+    <div class="trending-grid">
+      <div class="trending-card" *ngFor="let list of trendingLists" [routerLink]="['/list/view', list.id]">
+        <div class="trending-card-header">
+          <h4>{{ list.title }}</h4>
+          <span class="trending-badge">Trending</span>
+        </div>
+        <p class="author"><i class="bi bi-person"></i> {{ '@' + list.authorUsername }}</p>
+        <div class="trending-stats">
+          <span><i class="bi bi-eye"></i> {{ list.viewCount }}</span>
+          <span><i class="bi bi-heart"></i> {{ list.likeCount }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="statistics" *ngIf="statistics">
+    <h2>İstatistikler</h2>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <h3>{{ statistics.totalLists }}</h3>
+        <p>Toplam Liste</p>
+      </div>
+      <div class="stat-card">
+        <h3>{{ statistics.totalLikes }}</h3>
+        <p>Toplam Beğeni</p>
+      </div>
+      <div class="stat-card">
+        <h3>{{ statistics.totalFollowers }}</h3>
+        <p>Takipçi</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="lists-section">
+    <h2>Listelerim</h2>
+    <div class="lists-grid" *ngIf="lists.length > 0; else noLists">
+      <div class="list-card" *ngFor="let list of lists">
+        <!-- Liste Görseli -->
+        <div class="list-card-image" *ngIf="list.listImageLink">
+          <img 
+            [src]="getListImageUrl(list.listImageLink)" 
+            [alt]="list.title"
+            (error)="onImageError($event)"
+          />
+        </div>
+        <div class="list-card-image placeholder" *ngIf="!list.listImageLink">
+          <i class="bi bi-image"></i>
+          <span>Görsel Yok</span>
+        </div>
+        
+        <div class="list-card-content">
+          <div class="list-card-header">
+            <h3>{{ list.title }}</h3>
+            <span class="mode-badge" [class.ranked]="list.mode === 'Ranked'"
+                  [class.tiered]="list.mode === 'Tiered'"
+                  [class.fusion]="list.mode === 'Fusion'">
+              {{ list.mode }}
+            </span>
+          </div>
+          <div class="list-card-info">
+            <p><i class="bi bi-list-ul"></i> {{ list.itemCount || 0 }} anime</p>
+          </div>
+          <div class="list-actions">
+            <button class="btn btn-sm btn-secondary" (click)="viewList(list.id)">
+              <i class="bi bi-eye"></i> Görüntüle
+            </button>
+            <button class="btn btn-sm btn-primary" (click)="editList(list.id)">
+              <i class="bi bi-pencil"></i> Düzenle
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ng-template #noLists>
+      <div class="empty-state">
+        <i class="bi bi-inbox"></i>
+        <h3>Henüz liste oluşturmadınız</h3>
+        <p>İlk listenizi oluşturmak için yukarıdaki "Yeni Liste Oluştur" butonuna tıklayın</p>
+        <button class="btn btn-primary" routerLink="/list/create">
+          <i class="bi bi-plus-circle"></i> Liste Oluştur
+        </button>
+      </div>
+    </ng-template>
+  </div>
+
+  <div class="recommendations" *ngIf="recommendations.length > 0">
+    <h2>Öneriler</h2>
+    <div class="recommendations-grid">
+      <div class="recommendation-card" *ngFor="let rec of recommendations">
+        <img [src]="rec.imageUrl" [alt]="rec.title" />
+        <h4>{{ rec.title }}</h4>
+        <p>{{ rec.reason }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+

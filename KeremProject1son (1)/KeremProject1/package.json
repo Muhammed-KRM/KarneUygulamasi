@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@angular/material": "^19.1.0",
+    "bootstrap": "^5.3.3",
+    "js-sha1": "^0.7.0",
+    "sha1": "^1.1.1",
+    "sweetalert2": "^11.15.10"
+  },
+  "devDependencies": {
+    "@types/bootstrap": "^5.2.10"
+  }
+}

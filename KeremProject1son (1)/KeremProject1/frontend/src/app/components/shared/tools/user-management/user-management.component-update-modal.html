@@ -1,0 +1,84 @@
+<div class="update-user-modal" *ngIf="user">
+  <div class="modal-header">
+    <h3>Kullanıcı Düzenle</h3>
+  </div>
+
+  <div class="modal-body">
+    <form (ngSubmit)="updateUser()">
+      <!-- Error Message -->
+      <div *ngIf="errorMessage" class="alert alert-error">
+        <i class="bi bi-exclamation-triangle"></i> {{ errorMessage }}
+      </div>
+
+      <!-- Success Message -->
+      <div *ngIf="Message" class="alert alert-success">
+        <i class="bi bi-check-circle"></i> {{ Message }}
+      </div>
+
+      <!-- Username -->
+      <div class="form-group">
+        <label for="username">Kullanıcı Adı</label>
+        <input 
+          type="text" 
+          id="username"
+          [(ngModel)]="username" 
+          name="username"
+          class="form-control"
+          placeholder="Kullanıcı adı"
+        />
+      </div>
+
+      <!-- MAL Username -->
+      <div class="form-group">
+        <label for="malUsername">MAL Kullanıcı Adı</label>
+        <input 
+          type="text" 
+          id="malUsername"
+          [(ngModel)]="malUsername" 
+          name="malUsername"
+          class="form-control"
+          placeholder="MyAnimeList kullanıcı adı"
+        />
+      </div>
+
+      <!-- Role -->
+      <div class="form-group">
+        <label for="role">Rol</label>
+        <select 
+          id="role"
+          [(ngModel)]="role" 
+          name="role"
+          class="form-control"
+        >
+          <option [value]="0">User</option>
+          <option [value]="1">Admin</option>
+          <option [value]="2">AdminAdmin</option>
+        </select>
+      </div>
+
+      <!-- State -->
+      <div class="form-group">
+        <label for="state">Durum</label>
+        <select 
+          id="state"
+          [(ngModel)]="state" 
+          name="state"
+          class="form-control"
+        >
+          <option [ngValue]="true">Aktif</option>
+          <option [ngValue]="false">Pasif</option>
+        </select>
+      </div>
+
+      <!-- Actions -->
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">
+          <i class="bi bi-check"></i> Güncelle
+        </button>
+        <button type="button" class="btn btn-secondary" (click)="cancel()">
+          <i class="bi bi-x"></i> İptal
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

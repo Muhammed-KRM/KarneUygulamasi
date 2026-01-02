@@ -1,0 +1,116 @@
+@use 'src/app/styles/variables' as *;
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: $background-card;
+  border-radius: $radius-lg;
+  padding: $spacing-xl;
+  max-width: 600px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: $shadow-xl;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-lg;
+
+  h2 {
+    color: $text-color;
+    margin: 0;
+  }
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  cursor: pointer;
+  color: $text-secondary;
+  transition: color $transition-base ease;
+
+  &:hover {
+    color: $text-color;
+  }
+}
+
+.share-option {
+  margin-bottom: $spacing-lg;
+
+  label {
+    display: block;
+    margin-bottom: $spacing-sm;
+    font-weight: 600;
+    color: $text-color;
+  }
+}
+
+.input-group {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.form-control {
+  flex: 1;
+  padding: $spacing-md;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-md;
+  background: $background-dark;
+  color: $text-color;
+  transition: all $transition-base ease;
+
+  &:focus {
+    outline: none;
+    border-color: $primary-color;
+    box-shadow: 0 0 0 3px rgba($primary-color, 0.1);
+  }
+
+  &::placeholder {
+    color: $text-muted;
+  }
+}
+
+.embed-code {
+  min-height: 100px;
+  font-family: monospace;
+  margin-bottom: $spacing-sm;
+}
+
+.btn {
+  padding: $spacing-sm $spacing-lg;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all $transition-base ease;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, $primary-color, $secondary-color);
+  color: $text-color;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: $shadow-glow;
+  }
+}
+

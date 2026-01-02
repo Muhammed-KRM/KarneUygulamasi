@@ -1,0 +1,78 @@
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+      <div class="card shadow">
+        <div class="card-body p-4">
+          <h2 class="text-center mb-4">Kayıt Ol</h2>
+          
+          <form (ngSubmit)="onSubmit()" #signInForm="ngForm">
+
+            <!-- Email -->
+            <div class="mb-3">
+              <label for="username" class="form-label">Kullanıcı Adı</label>
+              <input 
+                type="text" 
+                class="form-control" 
+                id="username"
+                name="username"
+                [(ngModel)]="user.username"
+                required
+                minlength="2">
+            </div>
+
+            <!-- Şifre -->
+            <div class="mb-3">
+              <label for="password" class="form-label">Şifre</label>
+              <input 
+                type="password" 
+                class="form-control" 
+                id="password"
+                name="password"
+                [(ngModel)]="user.password"
+                required
+                minlength="6">
+            </div>
+
+            <!-- Şifre Tekrar -->
+            <div class="mb-3">
+              <label for="confirmPassword" class="form-label">Şifre Tekrar</label>
+              <input 
+                type="password" 
+                class="form-control" 
+                id="confirmPassword"
+                name="confirmPassword"
+                [(ngModel)]="user.confirmPassword"
+                required>
+            </div>
+
+            <!-- Kullanım Şartları -->
+            <div class="mb-4">
+              <div class="form-check">
+                <input 
+                  type="checkbox" 
+                  class="form-check-input" 
+                  id="agreeToTerms"
+                  name="agreeToTerms"
+                  [(ngModel)]="user.agreeToTerms"
+                  required>
+                <label class="form-check-label" for="agreeToTerms">
+                  Kullanım şartlarını kabul ediyorum
+                </label>
+              </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button 
+              type="submit" 
+              class="btn btn-primary w-100" 
+              >
+              Kayıt Ol
+            </button>
+
+
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

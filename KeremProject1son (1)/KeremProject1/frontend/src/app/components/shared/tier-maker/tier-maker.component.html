@@ -1,0 +1,11 @@
+<div class="tier-maker">
+  <app-tier-card
+    *ngFor="let tier of tiers"
+    [tier]="tier"
+    [mode]="mode"
+    [editable]="editable"
+    (onItemClick)="handleItemClick($event)"
+    (onItemDelete)="handleItemDelete($event)"
+  />
+</div>
+

@@ -1,0 +1,36 @@
+<div class="modal-overlay" *ngIf="showModal" (click)="close()">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>{{ isEditMode ? 'Tier Düzenle' : 'Tier Ekle' }}</h2>
+      <button class="btn-close" (click)="close()">×</button>
+    </div>
+    <div class="modal-body">
+      <form (ngSubmit)="save()">
+        <div class="form-group">
+          <label>Tier İsmi</label>
+          <input type="text" [(ngModel)]="title" name="title" class="form-control" required />
+        </div>
+
+        <div class="form-group">
+          <label>Renk</label>
+          <input type="color" [(ngModel)]="color" name="color" class="form-control color-input" />
+        </div>
+
+        <div class="form-group">
+          <label>Sıra Numarası</label>
+          <input type="number" [(ngModel)]="order" name="order" class="form-control" min="0" />
+        </div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary">
+            {{ isEditMode ? 'Güncelle' : 'Ekle' }}
+          </button>
+          <button type="button" class="btn btn-secondary" (click)="close()">
+            İptal
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+

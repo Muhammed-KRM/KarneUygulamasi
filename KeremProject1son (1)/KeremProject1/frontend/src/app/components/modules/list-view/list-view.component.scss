@@ -1,0 +1,534 @@
+@use 'sass:color';
+@use 'src/app/styles/variables' as *;
+
+.view-container {
+  padding: $spacing-xl 0 $spacing-3xl;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.view-layout {
+  display: flex;
+  gap: $spacing-xl;
+  align-items: flex-start;
+
+  @media (max-width: $breakpoint-lg) {
+    flex-direction: column;
+  }
+}
+
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.list-image-preview {
+  margin-bottom: $spacing-xl;
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: $shadow-md;
+
+  .image-wrapper {
+    width: 100%;
+    max-height: 500px;
+    overflow: hidden;
+    border-radius: $radius-md;
+    background: $background-dark;
+
+    img {
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+      display: block;
+    }
+  }
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: $spacing-lg;
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  padding: $spacing-xl;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: $shadow-md;
+
+  @media (max-width: $breakpoint-md) {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .title-section {
+    h1 {
+      margin: 0;
+      font-size: 2.5rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: $accent-color; // Pembe renk
+    }
+
+    .list-meta {
+      margin-top: $spacing-xs;
+      color: $text-muted;
+      font-size: 0.95rem;
+    }
+  }
+
+  .actions {
+    display: flex;
+    gap: $spacing-md;
+    flex-wrap: wrap;
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.75rem 1.5rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background-color: rgba(255,255,255,0.05);
+      color: $text-color;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+
+      i {
+        font-size: 1.1rem;
+      }
+
+      &:hover {
+        background-color: rgba(255,255,255,0.12);
+        transform: translateY(-2px);
+      }
+    }
+
+    .btn-like {
+      background: linear-gradient(
+        135deg,
+        color.adjust($accent-color, $lightness: 10%),
+        $accent-color
+      );
+      color: #fff;
+      border: none;
+      box-shadow: 0 6px 12px rgba($accent-color, 0.3);
+
+      &:hover {
+        box-shadow: 0 8px 18px rgba($accent-color, 0.4);
+      }
+
+      &.liked {
+        background: linear-gradient(135deg, #ff7a7a, #ff4b4b);
+        box-shadow: 0 8px 18px rgba(255, 75, 75, 0.4);
+      }
+    }
+
+    .btn-share {
+      border-color: rgba(255,255,255,0.1);
+    }
+
+    .btn-export {
+      border-color: rgba($primary-color, 0.4);
+      color: $primary-color;
+
+      &:hover:not(:disabled) {
+        background: rgba($primary-color, 0.1);
+      }
+
+      &:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+    }
+
+    .btn-edit {
+      background: $primary-color;
+      color: #fff;
+      border: none;
+    }
+  }
+}
+
+.list-content {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.tier-container {
+  display: flex;
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  border: 1px solid rgba(255,255,255,0.05);
+  overflow: hidden;
+  box-shadow: $shadow-md;
+
+  &:hover {
+    border-color: rgba(255,255,255,0.15);
+  }
+
+  .tier-header {
+    width: 160px;
+    padding: $spacing-lg $spacing-md;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    gap: $spacing-xs;
+    color: #0f0f0f; // Tier arka plan rengine göre siyah (tier rengi açık olduğu için)
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+
+    h3 {
+      color: #0f0f0f; // Tier arka plan rengine göre siyah
+      margin: 0;
+    }
+
+    .item-count {
+      font-size: 0.85rem;
+      opacity: 0.7;
+      color: #0f0f0f;
+    }
+  }
+
+  .tier-items {
+    flex: 1;
+    padding: $spacing-lg;
+    background: rgba(0,0,0,0.35);
+    display: flex;
+    flex-wrap: wrap;
+    gap: $spacing-md;
+  }
+}
+
+.anime-item {
+  position: relative;
+  width: 120px;
+  background: rgba(255,255,255,0.03);
+  border-radius: $radius-md;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  border: 1px solid rgba(255,255,255,0.08);
+
+  &:hover {
+    transform: translateY(-6px);
+    box-shadow: $shadow-lg;
+  }
+
+  .anime-thumbnail {
+    width: 100%;
+    height: 160px;
+    object-fit: cover;
+  }
+
+  .anime-info {
+    padding: $spacing-sm;
+    text-align: center;
+
+    .anime-title {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: $accent-color; // Pembe renk
+      margin-bottom: $spacing-xxs;
+    }
+
+    .rank {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: $text-secondary;
+    }
+  }
+}
+
+.ranked-list {
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: $shadow-md;
+  padding: $spacing-lg;
+
+  .ranked-items {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-md;
+  }
+
+  .ranked-item {
+    display: flex;
+    align-items: center;
+    gap: $spacing-lg;
+    background: rgba(255,255,255,0.02);
+    border-radius: $radius-md;
+    padding: $spacing-md;
+    border: 1px solid rgba(255,255,255,0.05);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+
+    &:hover {
+      transform: translateX(8px);
+      border-color: rgba($primary-color, 0.5);
+    }
+
+    .rank-number {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: $primary-color;
+      min-width: 48px;
+      text-align: center;
+    }
+
+    .anime-thumbnail {
+      width: 72px;
+      height: 100px;
+      object-fit: cover;
+      border-radius: $radius-sm;
+    }
+
+    .anime-info {
+      flex: 1;
+
+      .anime-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: $accent-color; // Pembe renk
+      }
+    }
+  }
+}
+
+.comments-section {
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  border: 1px solid rgba(255,255,255,0.05);
+  box-shadow: $shadow-md;
+  padding: $spacing-xl;
+
+  h2 {
+    margin: 0 0 $spacing-lg;
+    font-size: 1.5rem;
+    color: $accent-color; // Pembe renk
+  }
+
+  .comment-form {
+    margin-bottom: $spacing-xl;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-md;
+
+    .comment-input {
+      width: 100%;
+      min-height: 120px;
+      padding: $spacing-md;
+      border-radius: $radius-md;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03);
+      color: $text-color;
+      resize: vertical;
+
+      &:focus {
+        border-color: rgba($primary-color, 0.6);
+        outline: none;
+      }
+    }
+
+    .btn-primary {
+      align-self: flex-end;
+      border-radius: 999px;
+      padding: 0.75rem 1.75rem;
+    }
+  }
+
+  .login-prompt {
+    padding: $spacing-md;
+    background: rgba(255,255,255,0.03);
+    border-radius: $radius-md;
+    border: 1px dashed rgba(255,255,255,0.1);
+    text-align: center;
+
+    a {
+      color: $primary-color;
+      text-decoration: none;
+      font-weight: 600;
+    }
+  }
+
+  .comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-md;
+
+    .comment-item {
+      background: rgba(255,255,255,0.02);
+      border-radius: $radius-md;
+      padding: $spacing-md;
+      border: 1px solid rgba(255,255,255,0.05);
+      box-shadow: $shadow-sm;
+
+      .comment-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: $spacing-xs;
+
+        strong {
+          font-weight: 600;
+          color: $text-color;
+        }
+
+        small {
+          color: $text-muted;
+        }
+      }
+
+      .comment-content {
+        margin: 0;
+        color: $text-secondary;
+        line-height: 1.5;
+      }
+    }
+
+    .empty-comments {
+      text-align: center;
+      color: $text-muted;
+      font-style: italic;
+    }
+  }
+}
+
+.sidebar {
+  width: 320px;
+  flex-shrink: 0;
+
+  @media (max-width: $breakpoint-lg) {
+    width: 100%;
+  }
+
+  .stats-card {
+    background-color: $background-card;
+    border-radius: $radius-lg;
+    border: 1px solid rgba(255,255,255,0.05);
+    padding: $spacing-xl;
+    position: sticky;
+    top: 100px;
+    box-shadow: $shadow-md;
+
+    h3 {
+      margin: 0 0 $spacing-lg;
+      font-size: 1.4rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: $spacing-sm;
+      color: $accent-color; // Pembe renk
+    }
+
+    .stat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: $spacing-sm 0;
+      color: $text-secondary;
+
+      .stat-value {
+        font-weight: 700;
+        color: $text-color;
+      }
+    }
+  }
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(6px);
+}
+
+.modal-content {
+  background: $background-card;
+  border-radius: $radius-lg;
+  border: 1px solid rgba(255,255,255,0.08);
+  padding: $spacing-xl;
+  width: 90%;
+  max-width: 520px;
+  box-shadow: $shadow-xl;
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: $spacing-lg;
+
+    h2 {
+      margin: 0;
+      color: $accent-color; // Pembe renk
+    }
+
+    .btn-close {
+      background: none;
+      border: none;
+      color: $text-muted;
+      font-size: 1.5rem;
+      cursor: pointer;
+
+      &:hover {
+        color: $text-color;
+      }
+    }
+  }
+
+  .share-option {
+    margin-bottom: $spacing-lg;
+
+    label {
+      display: block;
+      margin-bottom: $spacing-xs;
+      color: $text-secondary;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+
+    .input-group {
+      display: flex;
+      gap: $spacing-sm;
+
+      .form-control {
+        flex: 1;
+        padding: $spacing-sm $spacing-md;
+        border-radius: $radius-md;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: rgba(255,255,255,0.05);
+        color: $text-color;
+      }
+
+      .embed-code {
+        min-height: 120px;
+        resize: none;
+      }
+
+      .btn {
+        padding: 0.5rem 1.2rem;
+        border-radius: $radius-md;
+      }
+    }
+  }
+}
+
+.loading {
+  text-align: center;
+  padding: $spacing-xl;
+  color: $text-secondary;
+}
+

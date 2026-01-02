@@ -1,0 +1,102 @@
+@use 'src/app/styles/variables' as *;
+
+.notifications-container {
+  padding: $spacing-xl;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-2xl;
+
+  h1 {
+    color: $text-color;
+    margin: 0;
+  }
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.notification-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: $spacing-lg;
+  background: $background-card;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-lg;
+  transition: all $transition-base ease;
+  color: $text-color;
+
+  &:hover {
+    background: $background-hover;
+    border-color: rgba($primary-color, 0.3);
+  }
+}
+
+.notification-item.unread {
+  background: rgba($primary-color, 0.1);
+  border-color: rgba($primary-color, 0.5);
+}
+
+.notification-content {
+  flex: 1;
+  color: $text-color;
+}
+
+.notification-actions {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.btn {
+  padding: $spacing-sm $spacing-md;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all $transition-base ease;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, $primary-color, $secondary-color);
+  color: $text-color;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: $shadow-glow;
+  }
+}
+
+.btn-sm {
+  padding: $spacing-xxs $spacing-sm;
+  font-size: 0.875rem;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: $text-color;
+
+  &:hover {
+    background: #c82333;
+    transform: translateY(-2px);
+  }
+}
+
+.empty,
+.loading {
+  text-align: center;
+  padding: $spacing-2xl;
+  color: $text-secondary;
+}
+

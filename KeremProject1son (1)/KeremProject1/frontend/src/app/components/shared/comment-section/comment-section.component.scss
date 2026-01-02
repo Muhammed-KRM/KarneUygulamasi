@@ -1,0 +1,113 @@
+@use 'src/app/styles/variables' as *;
+
+.comment-section {
+  margin-top: $spacing-2xl;
+  padding-top: $spacing-2xl;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.comment-form {
+  margin-bottom: $spacing-2xl;
+}
+
+.comment-input {
+  width: 100%;
+  padding: $spacing-md;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-md;
+  margin-bottom: $spacing-md;
+  min-height: 100px;
+  resize: vertical;
+  background: $background-dark;
+  color: $text-color;
+  transition: all $transition-base ease;
+
+  &:focus {
+    outline: none;
+    border-color: $accent-color;
+    box-shadow: 0 0 0 3px rgba($accent-color, 0.1);
+  }
+
+  &::placeholder {
+    color: $text-muted;
+  }
+}
+
+.comments-list {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.comment-item {
+  padding: $spacing-lg;
+  background: $background-card;
+  border-radius: $radius-md;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.comment-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: $spacing-sm;
+}
+
+.comment-header strong {
+  font-weight: 600;
+  color: $text-color;
+}
+
+.comment-header small {
+  color: $text-muted;
+}
+
+.btn-delete {
+  background: #dc3545;
+  color: $text-color;
+  border: none;
+  border-radius: $radius-sm;
+  padding: $spacing-xxs $spacing-sm;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all $transition-base ease;
+
+  &:hover {
+    background: #c82333;
+    transform: translateY(-2px);
+  }
+}
+
+.btn {
+  padding: $spacing-sm $spacing-lg;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all $transition-base ease;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, $accent-color, color.adjust($accent-color, $lightness: -10%));
+  color: $text-color;
+
+  &:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba($accent-color, 0.4);
+  }
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.empty {
+  text-align: center;
+  padding: $spacing-2xl;
+  color: $text-secondary;
+}
+

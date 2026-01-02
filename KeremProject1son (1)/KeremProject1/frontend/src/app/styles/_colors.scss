@@ -1,0 +1,92 @@
+// Renk tanımlamaları - TierMaker tarzı
+
+// Primary colors
+.primary {
+  color: $primary-color;
+}
+
+.secondary {
+  color: $secondary-color;
+}
+
+.accent {
+  color: $accent-color;
+}
+
+// Background colors (koyu tema)
+.bg-primary {
+  background-color: $primary-color;
+}
+
+.bg-secondary {
+  background-color: $secondary-color;
+}
+
+.bg-accent {
+  background-color: $accent-color;
+}
+
+.bg-dark {
+  background-color: $background-dark;
+}
+
+.bg-darker {
+  background-color: $background-darker;
+}
+
+.bg-card {
+  background-color: $background-card;
+}
+
+.bg-hover {
+  background-color: $background-hover;
+}
+
+// Text colors
+.text-primary {
+  color: $text-color;
+}
+
+.text-secondary {
+  color: $text-secondary;
+}
+
+.text-muted {
+  color: $text-muted;
+}
+
+.text-white {
+  color: white;
+}
+
+// Tier colors
+.tier-s {
+  background-color: $tier-s-color;
+  color: white;
+}
+
+.tier-a {
+  background-color: $tier-a-color;
+  color: white;
+}
+
+.tier-b {
+  background-color: $tier-b-color;
+  color: $text-color;
+}
+
+.tier-c {
+  background-color: $tier-c-color;
+  color: $text-color;
+}
+
+.tier-d {
+  background-color: $tier-d-color;
+  color: $text-color;
+}
+
+.tier-f {
+  background-color: $tier-f-color;
+  color: white;
+}
+

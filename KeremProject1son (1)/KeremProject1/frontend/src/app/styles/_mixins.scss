@@ -1,0 +1,107 @@
+@use 'src/app/styles/variables' as *;
+
+// Mixin'ler
+
+@mixin flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@mixin flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+@mixin card {
+  background-color: $background-card;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  box-shadow: $shadow-md;
+  transition: background-color $transition-base ease, transform $transition-base ease, box-shadow $transition-base ease;
+
+  &:hover {
+    background-color: $background-hover;
+    transform: translateY(-2px);
+    box-shadow: $shadow-lg;
+  }
+}
+
+@mixin button-primary {
+  background: $primary-color;
+  color: white;
+  border: none;
+  border-radius: $radius-md;
+  padding: $spacing-sm $spacing-lg;
+  cursor: pointer;
+  transition: background $transition-base ease, transform $transition-base ease, box-shadow $transition-base ease;
+
+  &:hover {
+    background: $secondary-color;
+    box-shadow: $shadow-glow;
+    transform: translateY(-2px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+@mixin button-secondary {
+  background: $background-card;
+  color: $text-color;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-md;
+  padding: $spacing-sm $spacing-lg;
+  cursor: pointer;
+  transition: background $transition-base ease, border-color $transition-base ease;
+
+  &:hover {
+    background: $background-hover;
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+}
+
+@mixin input {
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  border-radius: $radius-md;
+  font-size: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: $background-card;
+  color: $text-color;
+  transition: border-color $transition-base ease, box-shadow $transition-base ease;
+
+  &:focus {
+    outline: none;
+    border-color: $primary-color;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  }
+}
+
+@mixin responsive($breakpoint) {
+  @if $breakpoint == sm {
+    @media (min-width: $breakpoint-sm) {
+      @content;
+    }
+  }
+  @if $breakpoint == md {
+    @media (min-width: $breakpoint-md) {
+      @content;
+    }
+  }
+  @if $breakpoint == lg {
+    @media (min-width: $breakpoint-lg) {
+      @content;
+    }
+  }
+  @if $breakpoint == xl {
+    @media (min-width: $breakpoint-xl) {
+      @content;
+    }
+  }
+}
+

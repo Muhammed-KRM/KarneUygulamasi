@@ -1,0 +1,491 @@
+@use 'sass:color';
+@use '../../../styles/variables' as *;
+
+// UwUFuFu & TierMaker hibrit modern navbar
+.navbar {
+  background-color: #1e1e1e; // Daha koyu, mat siyah
+  border-bottom: 1px solid #333;
+  height: 70px; // Yüksekliği biraz artırdım
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  padding: 0;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+
+  .navbar-container {
+    max-width: 1600px; // App layout ile aynı genişlik
+    margin: 0 auto;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 $spacing-xl;
+    
+    @media (max-width: $breakpoint-md) {
+      padding: 0 $spacing-md;
+    }
+  }
+
+  .navbar-left {
+    display: flex;
+    align-items: center;
+    gap: $spacing-2xl; // Logo ile menü arasını aç
+
+    .logo {
+      text-decoration: none;
+      font-size: 1.8rem; // Logoyu büyüt
+      font-weight: 800;
+      letter-spacing: -1px;
+      display: flex;
+      align-items: center;
+      
+      .logo-text {
+        color: #fff;
+      }
+      
+      .logo-highlight {
+        color: $accent-color;
+      }
+    }
+
+    .desktop-menu {
+      display: flex;
+      gap: $spacing-lg; // Menü öğeleri arasını aç
+
+      @media (max-width: $breakpoint-lg) { // Tablette gizle
+        display: none;
+      }
+
+      .nav-item {
+        color: #ccc;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 1rem;
+        transition: all 0.2s ease;
+        padding: 8px 12px;
+        border-radius: 8px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+
+        &:hover, &.active {
+          color: #fff;
+          background-color: rgba(255,255,255,0.1);
+        }
+        
+        i {
+          font-size: 1.1em;
+          color: $accent-color; // İkonları renklendir
+        }
+      }
+      
+      .nav-dropdown-container {
+        position: relative;
+        
+        .nav-dropdown-menu {
+          display: none;
+          position: absolute;
+          top: 100%;
+          left: 0;
+          min-width: 220px;
+          background-color: #222;
+          border: 1px solid #333;
+          border-radius: 12px;
+          padding: 10px;
+          margin-top: 10px;
+          box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+          z-index: 1001;
+          
+          &.show {
+            display: block;
+            animation: fadeIn 0.2s ease;
+          }
+          
+          // Üçgen ok
+          &::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            left: 20px;
+            width: 12px;
+            height: 12px;
+            background-color: #222;
+            border-top: 1px solid #333;
+            border-left: 1px solid #333;
+            transform: rotate(45deg);
+          }
+          
+          .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            color: #ddd;
+            text-decoration: none;
+            font-size: 0.95rem;
+            border-radius: 8px;
+            transition: background 0.2s;
+            
+            i {
+              color: $accent-color;
+              font-size: 1.2em;
+              width: 20px;
+              text-align: center;
+            }
+
+            &:hover {
+              background-color: #333;
+              color: #fff;
+              transform: translateX(5px); // Hafif kayma efekti
+            }
+          }
+        }
+      }
+    }
+  }
+
+  .navbar-right {
+    display: flex;
+    align-items: center;
+    gap: $spacing-lg;
+
+    // Oluştur Butonu Dropdown
+    .create-dropdown-container {
+      position: relative;
+
+      .create-dropdown-menu {
+        display: none;
+        position: absolute;
+        top: 100%;
+        right: 0;
+        min-width: 260px;
+        background-color: #222;
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 10px;
+        margin-top: 15px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+        z-index: 1001;
+        
+        &.show {
+          display: block;
+          animation: fadeIn 0.2s ease;
+        }
+        
+        &::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            right: 20px;
+            width: 12px;
+            height: 12px;
+            background-color: #222;
+            border-top: 1px solid #333;
+            border-left: 1px solid #333;
+            transform: rotate(45deg);
+        }
+        
+        .dropdown-item {
+          display: flex;
+          align-items: flex-start;
+          gap: 15px;
+          padding: 15px;
+          color: #fff;
+          text-decoration: none;
+          border-radius: 8px;
+          transition: background 0.2s;
+          
+          i {
+            font-size: 1.5em;
+            color: $accent-color;
+            margin-top: 2px;
+          }
+          
+          div {
+            display: flex;
+            flex-direction: column;
+            
+            span {
+              font-weight: 600;
+              font-size: 1rem;
+            }
+            
+            small {
+              color: #888;
+              font-size: 0.8rem;
+              margin-top: 2px;
+            }
+          }
+
+          &:hover {
+            background-color: #333;
+          }
+        }
+      }
+
+      .btn-create {
+        background: linear-gradient(
+          135deg,
+          $accent-color,
+          color.adjust($accent-color, $lightness: -10%)
+        );
+        color: white;
+        border: none;
+        padding: 0.6rem 1.5rem;
+        border-radius: 50px; // Yuvarlak kenarlar
+        font-weight: 700;
+        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 15px rgba($accent-color, 0.4);
+
+        &:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 20px rgba($accent-color, 0.6);
+        }
+
+        @media (max-width: $breakpoint-sm) {
+          display: none;
+        }
+      }
+    }
+
+    .auth-buttons {
+      display: flex;
+      gap: 15px;
+      align-items: center;
+
+      @media (max-width: $breakpoint-sm) {
+        display: none;
+      }
+
+      .nav-btn {
+        text-decoration: none;
+        padding: 0.5rem 1.2rem;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        transition: all 0.2s ease;
+        
+        &.login-btn {
+          color: #ccc;
+          &:hover { color: #fff; }
+        }
+
+        &.signup-btn {
+          background: linear-gradient(135deg, $primary-color, $secondary-color);
+          color: $text-color;
+          &:hover { 
+            background: linear-gradient(135deg, $secondary-color, $accent-color);
+            transform: translateY(-2px);
+            box-shadow: $shadow-glow;
+          }
+        }
+      }
+    }
+  }
+
+  .user-menu {
+    position: relative;
+
+    .user-trigger {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      padding: 6px 12px;
+      border-radius: 50px;
+      background-color: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: all 0.2s ease;
+      
+      &:hover {
+        background-color: rgba(255,255,255,0.1);
+        border-color: rgba(255,255,255,0.2);
+      }
+
+      .user-avatar {
+        width: 32px;
+        height: 32px;
+        background-color: $accent-color;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-size: 1.2rem;
+        overflow: hidden;
+
+        img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+      }
+
+      .username {
+        font-weight: 600;
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.95rem;
+        color: $accent-color;
+      }
+      
+      i.bi-caret-down-fill { font-size: 0.7rem; color: #888; }
+    }
+
+    .dropdown-menu {
+      position: absolute;
+      top: 100%;
+      right: 0;
+      width: 280px;
+      background-color: #222;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 15px;
+      margin-top: 15px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+      display: none;
+      z-index: 1002;
+      
+      &.show { display: block; animation: fadeIn 0.2s ease; }
+      
+      .menu-header {
+        padding: 0 10px 10px 10px;
+        
+        .greeting {
+          color: #888;
+          font-size: 0.9rem;
+        }
+      }
+
+      .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px;
+        color: #ddd;
+        text-decoration: none;
+        font-size: 0.95rem;
+        border-radius: 8px;
+        transition: background 0.2s;
+        
+        i {
+          font-size: 1.2rem;
+          color: $accent-color;
+          width: 24px;
+          text-align: center;
+        }
+        
+        .badge {
+          margin-left: auto;
+          background-color: #ff4444;
+          padding: 2px 8px;
+          border-radius: 10px;
+          font-size: 0.75rem;
+        }
+
+        &:hover {
+          background-color: #333;
+          color: #fff;
+        }
+      }
+
+      .divider {
+        height: 1px;
+        background-color: #333;
+        margin: 8px 0;
+      }
+
+      .text-danger { 
+        color: #ff5555; 
+        i { color: #ff5555; }
+        &:hover { background-color: rgba(255, 85, 85, 0.1); }
+      }
+    }
+  }
+
+  .mobile-toggle {
+    display: none;
+    background: none;
+    border: none;
+    color: #fff;
+    font-size: 1.5rem;
+    cursor: pointer;
+
+    @media (max-width: $breakpoint-lg) { // Tablette göster
+      display: block;
+    }
+  }
+
+  .mobile-menu {
+    position: fixed;
+    top: 70px;
+    left: 0;
+    width: 100%;
+    height: calc(100vh - 70px);
+    background-color: #1a1a1a;
+    padding: 20px;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 999;
+
+    &.active {
+      transform: translateX(0);
+    }
+
+    a {
+      color: #fff;
+      text-decoration: none;
+      font-size: 1.1rem;
+      font-weight: 600;
+      padding: 12px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+
+      i {
+        color: $accent-color;
+        font-size: 1.2rem;
+      }
+
+      &:hover {
+        background-color: #333;
+      }
+    }
+    
+    .mobile-auth-btn {
+      justify-content: center;
+      background-color: #333;
+      
+      &.highlight {
+        background-color: $accent-color;
+        color: #fff;
+        
+        i { color: #fff; }
+      }
+    }
+    
+    .divider {
+      height: 1px;
+      background-color: #333;
+      margin: 5px 0;
+    }
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

@@ -1,0 +1,472 @@
+@use 'sass:color';
+@use 'src/app/styles/variables' as *;
+@use 'src/app/styles/mixins' as *;
+
+.tools-container {
+  padding: $spacing-xl 0 $spacing-3xl;
+  max-width: 1400px;
+  margin: 0 auto;
+  min-height: calc(100vh - 200px);
+}
+
+.tools-header {
+  text-align: center;
+  margin-bottom: $spacing-3xl;
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: $accent-color;
+    margin-bottom: $spacing-sm;
+    background: linear-gradient(135deg, $accent-color, $primary-color);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    color: $text-secondary;
+  }
+}
+
+.tools-section {
+  margin-bottom: $spacing-3xl;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  margin-bottom: $spacing-xl;
+  padding-bottom: $spacing-md;
+  border-bottom: 2px solid rgba($accent-color, 0.3);
+
+  i {
+    font-size: 1.5rem;
+    color: $accent-color;
+  }
+
+  h2 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: $text-color;
+    margin: 0;
+  }
+}
+
+.tools-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: $spacing-lg;
+}
+
+.tool-card {
+  @include card;
+  padding: $spacing-xl;
+  text-align: center;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all $transition-base ease;
+  background: $background-card;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $spacing-md;
+
+  &:hover {
+    transform: translateY(-8px);
+    box-shadow: $shadow-xl;
+    border-color: rgba($accent-color, 0.5);
+    background: color.adjust($background-card, $lightness: 2%);
+  }
+
+  .tool-icon {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba($accent-color, 0.2), rgba($primary-color, 0.2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: $spacing-sm;
+
+    i {
+      font-size: 2rem;
+      color: $accent-color;
+    }
+  }
+
+  h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: $text-color;
+    margin: 0;
+  }
+
+  p {
+    font-size: 0.9rem;
+    color: $text-secondary;
+    margin: 0;
+  }
+}
+
+// Modal Styles
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: $spacing-lg;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal-content {
+  background: $background-card;
+  border-radius: $radius-lg;
+  max-width: 600px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: $shadow-xl;
+  animation: slideUp 0.3s ease;
+
+  &.modal-lg {
+    max-width: 900px;
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: $spacing-lg $spacing-xl;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+
+  h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: $accent-color;
+    margin: 0;
+  }
+
+  .btn-close {
+    background: none;
+    border: none;
+    color: $text-color;
+    font-size: 2rem;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: $radius-sm;
+    transition: all $transition-fast ease;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: $accent-color;
+    }
+  }
+}
+
+.modal-body {
+  padding: $spacing-xl;
+
+  app-admin-signin-modal {
+    display: block;
+    width: 100%;
+
+    .admin-signin-container {
+      padding: 0;
+    }
+  }
+}
+
+.empty-modal {
+  text-align: center;
+  color: $text-secondary;
+  padding: $spacing-2xl;
+}
+
+// Utility Tool Styles
+.utility-tool {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.color-picker-wrapper {
+  display: flex;
+  gap: $spacing-lg;
+  align-items: center;
+  margin-bottom: $spacing-lg;
+
+  .color-input {
+    width: 100px;
+    height: 100px;
+    border: none;
+    border-radius: $radius-md;
+    cursor: pointer;
+  }
+
+  .color-preview {
+    flex: 1;
+    height: 100px;
+    border-radius: $radius-md;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+  }
+}
+
+.color-formats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: $spacing-md;
+
+  .format-item {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-xs;
+
+    label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: $text-secondary;
+    }
+  }
+}
+
+.textarea-large {
+  min-height: 200px;
+  resize: vertical;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.text-stats {
+  display: flex;
+  gap: $spacing-lg;
+  padding: $spacing-md;
+  background: $background-dark;
+  border-radius: $radius-md;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-xxs;
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: $text-muted;
+    }
+
+    .stat-value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: $accent-color;
+    }
+  }
+}
+
+.text-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.password-display {
+  display: flex;
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+
+  input {
+    flex: 1;
+  }
+}
+
+.password-options {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: $spacing-md;
+  margin-bottom: $spacing-lg;
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    cursor: pointer;
+    color: $text-color;
+
+    input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+    }
+  }
+}
+
+.password-length {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-lg;
+
+  label {
+    color: $text-color;
+    font-weight: 600;
+  }
+
+  .slider {
+    width: 100%;
+    height: 8px;
+    border-radius: $radius-full;
+    background: $background-dark;
+    outline: none;
+    -webkit-appearance: none;
+
+    &::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: $accent-color;
+      cursor: pointer;
+    }
+
+    &::-moz-range-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: $accent-color;
+      cursor: pointer;
+      border: none;
+    }
+  }
+}
+
+.btn-generate {
+  width: 100%;
+  padding: $spacing-md;
+  font-size: 1.1rem;
+}
+
+.encode-decode-tabs {
+  display: flex;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-md;
+
+  .tab-btn {
+    flex: 1;
+    padding: $spacing-sm $spacing-md;
+    background: $background-dark;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: $radius-md;
+    color: $text-secondary;
+    cursor: pointer;
+    transition: all $transition-base ease;
+    font-weight: 600;
+
+    &.active {
+      background: linear-gradient(135deg, $accent-color, color.adjust($accent-color, $lightness: -10%));
+      color: $text-color;
+      border-color: $accent-color;
+    }
+
+    &:hover:not(.active) {
+      background: $background-hover;
+      border-color: rgba($accent-color, 0.3);
+    }
+  }
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-sm;
+}
+
+.error-message {
+  padding: $spacing-md;
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: $radius-md;
+  color: #f44336;
+  font-size: 0.9rem;
+}
+
+.form-control {
+  @include input;
+  width: 100%;
+}
+
+.btn {
+  @include button-primary;
+  padding: $spacing-sm $spacing-lg;
+  font-size: 0.95rem;
+
+  &.btn-secondary {
+    @include button-secondary;
+    background: $background-dark;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+
+    &:hover {
+      background: $background-hover;
+      border-color: rgba($accent-color, 0.5);
+    }
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+// Responsive
+@media (max-width: $breakpoint-md) {
+  .tools-container {
+    padding: $spacing-lg;
+  }
+
+  .tools-header h1 {
+    font-size: 2rem;
+  }
+
+  .tools-grid {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: $spacing-md;
+  }
+
+  .modal-content {
+    margin: $spacing-md;
+    max-height: calc(100vh - 2rem);
+  }
+
+  .password-options {
+    grid-template-columns: 1fr;
+  }
+}

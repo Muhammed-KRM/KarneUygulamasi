@@ -1,0 +1,93 @@
+<div class="create-container">
+  <div class="page-header">
+    <h1>Yeni Liste Oluştur</h1>
+    <p class="subtitle">Listenizin türünü seçin ve oluşturmaya başlayın.</p>
+  </div>
+  
+  <div class="create-card">
+    <form (ngSubmit)="createList()">
+      <!-- Liste Başlığı -->
+      <div class="form-group">
+        <label>Liste Başlığı</label>
+        <input type="text" [(ngModel)]="title" name="title" class="form-control" placeholder="Örn: En Sevdiğim Isekai Animeleri" required />
+      </div>
+
+      <!-- Liste Modu -->
+      <div class="form-group">
+        <label>Liste Modu</label>
+        <div class="mode-selection">
+          
+          <!-- Ranked Mode -->
+          <label class="mode-option" [class.selected]="mode === 'Ranked'">
+            <input type="radio" [(ngModel)]="mode" [value]="'Ranked'" name="mode" />
+            <div class="mode-content">
+              <div class="mode-icon"><i class="bi bi-list-ol"></i></div>
+              <div class="mode-info">
+                <span class="mode-title">Ranked</span>
+                <span class="mode-desc">Klasik 1, 2, 3 sıralama</span>
+              </div>
+            </div>
+          </label>
+
+          <!-- Tiered Mode -->
+          <label class="mode-option" [class.selected]="mode === 'Tiered'">
+            <input type="radio" [(ngModel)]="mode" [value]="'Tiered'" name="mode" />
+            <div class="mode-content">
+              <div class="mode-icon"><i class="bi bi-grid-3x3"></i></div>
+              <div class="mode-info">
+                <span class="mode-title">Tiered</span>
+                <span class="mode-desc">S, A, B, C katmanları</span>
+              </div>
+            </div>
+          </label>
+
+          <!-- Fusion Mode -->
+          <label class="mode-option" [class.selected]="mode === 'Fusion'">
+            <input type="radio" [(ngModel)]="mode" [value]="'Fusion'" name="mode" />
+            <div class="mode-content">
+              <div class="mode-icon"><i class="bi bi-layers"></i></div>
+              <div class="mode-info">
+                <span class="mode-title">Fusion</span>
+                <span class="mode-desc">Hem sıralama hem katman</span>
+              </div>
+            </div>
+          </label>
+
+        </div>
+      </div>
+
+      <!-- Tier Ayarları -->
+      <div class="tier-settings" *ngIf="mode !== 'Ranked'">
+        <label class="checkbox-wrapper">
+          <input type="checkbox" [(ngModel)]="useDefaultTiers" name="useDefaultTiers" />
+          <span class="checkmark"></span>
+          <span class="label-text">Varsayılan Tier'ları Kullan (S, A, B, C, D, F)</span>
+        </label>
+
+        <div class="custom-tiers" *ngIf="!useDefaultTiers">
+          <h3>Özel Tier'lar</h3>
+          <div class="tier-list">
+            <div class="tier-item" *ngFor="let tier of customTiers; let i = index">
+              <input type="color" [(ngModel)]="tier.color" [name]="'tier-color-' + i" class="color-picker" />
+              <input type="text" [(ngModel)]="tier.title" [name]="'tier-title-' + i" placeholder="Tier İsmi" class="tier-input" />
+              <button type="button" class="btn-icon-danger" (click)="removeCustomTier(i)"><i class="bi bi-trash"></i></button>
+            </div>
+          </div>
+          <button type="button" class="btn btn-outline-primary btn-sm mt-2" (click)="addCustomTier()">
+            <i class="bi bi-plus"></i> Tier Ekle
+          </button>
+        </div>
+      </div>
+
+      <!-- Butonlar -->
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" routerLink="/dashboard">İptal</button>
+        <button type="submit" class="btn btn-primary" [disabled]="loading">
+          <span *ngIf="!loading">Oluştur</span>
+          <span *ngIf="loading">Oluşturuluyor...</span>
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+

@@ -1,0 +1,51 @@
+@use 'src/app/styles/variables' as *;
+
+.list-card {
+  background: $background-card;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-lg;
+  padding: $spacing-lg;
+  cursor: pointer;
+  transition: all $transition-base ease;
+  color: $text-color;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: $shadow-lg;
+    border-color: rgba($primary-color, 0.3);
+  }
+}
+
+.actions {
+  margin-top: $spacing-md;
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.btn {
+  padding: $spacing-sm $spacing-md;
+  border: none;
+  border-radius: $radius-md;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all $transition-base ease;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.btn-sm {
+  padding: $spacing-xxs $spacing-sm;
+  font-size: 0.875rem;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: $text-color;
+
+  &:hover {
+    background: #c82333;
+    transform: translateY(-2px);
+  }
+}
+

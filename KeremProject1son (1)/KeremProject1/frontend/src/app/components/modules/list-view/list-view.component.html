@@ -1,0 +1,214 @@
+<div class="view-container" *ngIf="list">
+  <div class="view-layout">
+    <!-- Ana İçerik -->
+    <div class="main-content">
+      <!-- Liste Görseli -->
+      <div class="list-image-preview" *ngIf="listImageLink">
+        <div class="image-wrapper">
+          <img 
+            [src]="getListImageUrl(listImageLink)" 
+            [alt]="list.title + ' görseli'"
+            (error)="onImageError($event)"
+          />
+        </div>
+      </div>
+
+      <!-- Header -->
+      <div class="header">
+        <div class="title-section">
+          <h1>{{ list.title }}</h1>
+          <p class="list-meta" *ngIf="list.userId">
+            <span>Oluşturan: Kullanıcı #{{ list.userId }}</span>
+          </p>
+        </div>
+        <div class="actions">
+          <button class="btn btn-like" (click)="toggleLike()" [class.liked]="isLiked">
+            <i class="bi bi-heart" [class.bi-heart-fill]="isLiked"></i> 
+            <span>{{ likeCount }}</span>
+          </button>
+          <button class="btn btn-share" (click)="openShareModal()">
+            <i class="bi bi-share"></i> Paylaş
+          </button>
+          <button class="btn btn-export" (click)="exportAsImage()" [disabled]="exporting">
+            <i class="bi" [class.bi-download]="!exporting" [class.bi-hourglass-split]="exporting"></i> 
+            <span *ngIf="!exporting">Export</span>
+            <span *ngIf="exporting">Export ediliyor...</span>
+          </button>
+          <button class="btn btn-template" *ngIf="isOwner" (click)="openTemplateModal()">
+            <i class="bi bi-file-earmark-text"></i> Şablona Dönüştür
+          </button>
+          <button class="btn btn-edit" *ngIf="isOwner" [routerLink]="['/list/edit', listId]">
+            <i class="bi bi-pencil"></i> Düzenle
+          </button>
+        </div>
+      </div>
+
+      <!-- List Content -->
+      <div class="list-content">
+        <!-- Tiered/Fusion Mode -->
+        <ng-container *ngIf="list.mode !== 'Ranked'">
+          <div class="tier-container" *ngFor="let tier of list.tiers">
+            <div class="tier-header" [style.background-color]="tier.color">
+              <h3>{{ tier.title }}</h3>
+              <span class="item-count">{{ tier.items.length }} anime</span>
+            </div>
+            <div class="tier-items">
+              <div class="anime-item" *ngFor="let item of tier.items">
+                <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+                <div class="anime-info">
+                  <span class="anime-title">{{ item.title }}</span>
+                  <span class="rank" *ngIf="list.mode === 'Fusion'">
+                    #{{ item.rankInTier }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </ng-container>
+
+        <!-- Ranked Mode -->
+        <div class="ranked-list" *ngIf="list.mode === 'Ranked' && list.tiers.length > 0">
+          <div class="ranked-items">
+            <div class="ranked-item" *ngFor="let item of list.tiers[0].items; let i = index">
+              <span class="rank-number">{{ i + 1 }}</span>
+              <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+              <div class="anime-info">
+                <span class="anime-title">{{ item.title }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comments Section -->
+      <div class="comments-section">
+        <h2>Yorumlar ({{ comments.length }})</h2>
+        <div class="comment-form" *ngIf="authService.isAuthenticated()">
+          <textarea [(ngModel)]="newComment" placeholder="Yorum yazın..." class="comment-input"></textarea>
+          <button class="btn btn-primary" (click)="addComment()">
+            <i class="bi bi-send"></i> Gönder
+          </button>
+        </div>
+        <div class="login-prompt" *ngIf="!authService.isAuthenticated()">
+          <p>Yorum yapmak için <a routerLink="/login">giriş yapın</a></p>
+        </div>
+        <div class="comments-list">
+          <div class="comment-item" *ngFor="let comment of comments">
+            <div class="comment-header">
+              <strong>{{ comment.username }}</strong>
+              <small>{{ comment.createdAt | date:'short' }}</small>
+            </div>
+            <p class="comment-content">{{ comment.content }}</p>
+          </div>
+          <div class="empty-comments" *ngIf="comments.length === 0">
+            <p>Henüz yorum yok. İlk yorumu sen yap!</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar - Statistics -->
+    <aside class="sidebar" *ngIf="statistics">
+      <div class="stats-card">
+        <h3>İstatistikler</h3>
+        <div class="stat-item">
+          <span class="stat-label">Toplam Anime</span>
+          <span class="stat-value">{{ statistics.totalItems }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Tier Sayısı</span>
+          <span class="stat-value">{{ statistics.totalTiers }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Benzersiz Anime</span>
+          <span class="stat-value">{{ statistics.uniqueAnimeCount }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Oluşturulma</span>
+          <span class="stat-value">{{ statistics.createdAt | date:'short' }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Son Güncelleme</span>
+          <span class="stat-value">{{ statistics.lastModified | date:'short' }}</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div *ngIf="loading && !list" class="loading">
+  <p>Yükleniyor...</p>
+</div>
+
+<!-- Share Modal -->
+<div class="modal-overlay" *ngIf="showShareModal" (click)="showShareModal = false">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>Paylaş</h2>
+      <button class="btn-close" (click)="showShareModal = false">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="share-option">
+        <label>Paylaşım Linki</label>
+        <div class="input-group">
+          <input type="text" [value]="shareUrl" readonly class="form-control" />
+          <button class="btn btn-primary" (click)="copyShareUrl()">
+            <i class="bi bi-clipboard"></i> Kopyala
+          </button>
+        </div>
+      </div>
+      
+      <div class="share-option">
+        <label>Embed Kodu</label>
+        <div class="input-group">
+          <textarea [value]="embedCode" readonly class="form-control embed-code"></textarea>
+          <button class="btn btn-primary" (click)="copyEmbedCode()">
+            <i class="bi bi-clipboard"></i> Kopyala
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Template Modal -->
+<div class="modal-overlay" *ngIf="showTemplateModal" (click)="showTemplateModal = false">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>Şablon Oluştur</h2>
+      <button class="btn-close" (click)="showTemplateModal = false">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="templateName">Şablon Adı *</label>
+        <input 
+          type="text" 
+          id="templateName"
+          [(ngModel)]="templateName" 
+          class="form-control" 
+          placeholder="Örn: En İyi Komedi Animeleri"
+          maxlength="100"
+        />
+      </div>
+      
+      <div class="form-group">
+        <label for="templateDescription">Açıklama</label>
+        <textarea 
+          id="templateDescription"
+          [(ngModel)]="templateDescription" 
+          class="form-control" 
+          placeholder="Şablon hakkında açıklama (opsiyonel)"
+          rows="4"
+          maxlength="500"
+        ></textarea>
+      </div>
+      
+      <div class="modal-actions">
+        <button class="btn btn-secondary" (click)="showTemplateModal = false">İptal</button>
+        <button class="btn btn-primary" (click)="createTemplate()">
+          <i class="bi bi-check"></i> Oluştur
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,228 @@
+@use 'src/app/styles/variables' as *;
+@use 'sass:color';
+
+.profile-container {
+  padding: $spacing-xl;
+  max-width: 1200px;
+  margin: 0 auto;
+  color: $text-color;
+}
+
+.profile-header {
+  display: flex;
+  gap: $spacing-xl;
+  margin-bottom: $spacing-2xl;
+  padding-bottom: $spacing-xl;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: $background-card;
+  padding: $spacing-xl;
+  border-radius: $radius-lg;
+}
+
+.avatar {
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid $accent-color;
+}
+
+.profile-info {
+  flex: 1;
+
+  h1 {
+    margin: 0 0 $spacing-sm 0;
+    color: $text-color;
+    font-size: 2rem;
+  }
+
+  p {
+    color: $text-secondary;
+    margin: $spacing-xs 0;
+  }
+}
+
+.stats {
+  display: flex;
+  gap: $spacing-xl;
+  margin: $spacing-lg 0;
+}
+
+.stat {
+  text-align: center;
+
+  strong {
+    display: block;
+    font-size: 1.5rem;
+    color: $accent-color;
+    font-weight: 700;
+  }
+
+  span {
+    color: $text-secondary;
+    font-size: 0.9rem;
+  }
+}
+
+.lists-section {
+  margin-top: $spacing-2xl;
+
+  h2 {
+    color: $text-color;
+    margin-bottom: $spacing-lg;
+    font-size: 1.8rem;
+  }
+}
+
+.lists-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: $spacing-lg;
+}
+
+.list-card {
+  background: $background-card;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: $radius-md;
+  padding: 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  &:hover {
+    transform: translateY(-4px);
+    box-shadow: $shadow-lg;
+    border-color: $accent-color;
+
+    .list-card-image img {
+      transform: scale(1.05);
+    }
+  }
+
+  .list-card-image {
+    width: 100%;
+    height: 200px;
+    overflow: hidden;
+    background: $background-dark;
+    position: relative;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+      transition: transform 0.3s ease;
+    }
+
+    &.placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: $text-muted;
+      background: rgba(255, 255, 255, 0.03);
+
+      i {
+        font-size: 3rem;
+        margin-bottom: $spacing-sm;
+        opacity: 0.5;
+      }
+
+      span {
+        font-size: 0.9rem;
+        opacity: 0.7;
+      }
+    }
+  }
+
+  .list-card-content {
+    padding: $spacing-lg;
+    display: flex;
+    flex-direction: column;
+    gap: $spacing-sm;
+  }
+
+  .list-card-content {
+    h3 {
+      margin: 0 0 $spacing-sm 0;
+      color: $text-color;
+      font-size: 1.2rem;
+    }
+
+    p {
+      margin: $spacing-xs 0;
+      color: $text-secondary;
+      font-size: 0.9rem;
+    }
+  }
+
+  .list-meta {
+    color: $text-muted;
+    font-size: 0.85rem;
+  }
+
+  .list-actions {
+    margin-top: $spacing-md;
+    display: flex;
+    gap: $spacing-sm;
+  }
+}
+
+.btn {
+  padding: $spacing-sm $spacing-md;
+  border: none;
+  border-radius: $radius-sm;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+
+  &.btn-primary {
+    background: linear-gradient(135deg, $accent-color, color.adjust($accent-color, $lightness: -10%));
+    color: white;
+
+    &:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    }
+  }
+
+  &.btn-secondary {
+    background: $background-dark;
+    color: $text-color;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+
+    &:hover:not(:disabled) {
+      background: color.adjust($background-dark, $lightness: 5%);
+    }
+  }
+
+  &.btn-sm {
+    padding: $spacing-xxs $spacing-sm;
+    font-size: 0.8rem;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.loading {
+  text-align: center;
+  padding: $spacing-2xl;
+  color: $text-secondary;
+}
+
+.no-lists {
+  text-align: center;
+  padding: $spacing-2xl;
+  color: $text-muted;
+  font-size: 1.1rem;
+}
+

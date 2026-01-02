@@ -1,0 +1,351 @@
+<div class="tools-container">
+  <div class="tools-header">
+    <h1>Araçlar</h1>
+    <p class="subtitle">Yönetim ve yardımcı araçlar</p>
+  </div>
+
+  <!-- Admin Admin Tools -->
+  <div class="tools-section">
+    <div class="section-header">
+      <i class="bi bi-shield-lock"></i>
+      <h2>Admin Admin Tools</h2>
+    </div>
+    <div class="tools-grid">
+      <button class="tool-card" (click)="openModal('AdminSigninModal')">
+        <div class="tool-icon">
+          <i class="bi bi-person-plus-fill"></i>
+        </div>
+        <h3>Admin Signin</h3>
+        <p>Admin girişi yapın</p>
+      </button>
+    </div>
+  </div>
+
+  <!-- Admin Tools -->
+  <div class="tools-section">
+    <div class="section-header">
+      <i class="bi bi-gear"></i>
+      <h2>Admin Tools</h2>
+    </div>
+    <div class="tools-grid">
+      <button class="tool-card" (click)="openModal('UsersManagementModal')">
+        <div class="tool-icon">
+          <i class="bi bi-people-fill"></i>
+        </div>
+        <h3>Users Management</h3>
+        <p>Kullanıcı yönetimi</p>
+      </button>
+      <button class="tool-card" (click)="openModal('SystemLogModal')">
+        <div class="tool-icon">
+          <i class="bi bi-journal-text"></i>
+        </div>
+        <h3>System Log</h3>
+        <p>Sistem logları</p>
+      </button>
+      <button class="tool-card" (click)="openModal('UserReportsModal')">
+        <div class="tool-icon">
+          <i class="bi bi-file-earmark-text"></i>
+        </div>
+        <h3>User Reports</h3>
+        <p>Kullanıcı raporları</p>
+      </button>
+    </div>
+  </div>
+
+  <!-- Utility Tools -->
+  <div class="tools-section">
+    <div class="section-header">
+      <i class="bi bi-tools"></i>
+      <h2>Yardımcı Araçlar</h2>
+    </div>
+    <div class="tools-grid">
+      <button class="tool-card" (click)="openUtilityTool('colorPicker')">
+        <div class="tool-icon">
+          <i class="bi bi-palette"></i>
+        </div>
+        <h3>Renk Seçici</h3>
+        <p>Hex, RGB, HSL renk kodları</p>
+      </button>
+      <button class="tool-card" (click)="openUtilityTool('textUtils')">
+        <div class="tool-icon">
+          <i class="bi bi-textarea-t"></i>
+        </div>
+        <h3>Metin Araçları</h3>
+        <p>Karakter sayacı, dönüştürme</p>
+      </button>
+      <button class="tool-card" (click)="openUtilityTool('passwordGen')">
+        <div class="tool-icon">
+          <i class="bi bi-key"></i>
+        </div>
+        <h3>Şifre Üretici</h3>
+        <p>Güvenli şifre oluştur</p>
+      </button>
+      <button class="tool-card" (click)="openUtilityTool('base64')">
+        <div class="tool-icon">
+          <i class="bi bi-code-square"></i>
+        </div>
+        <h3>Base64 Encoder/Decoder</h3>
+        <p>Metin kodlama/çözme</p>
+      </button>
+      <button class="tool-card" (click)="openUtilityTool('jsonFormatter')">
+        <div class="tool-icon">
+          <i class="bi bi-braces"></i>
+        </div>
+        <h3>JSON Formatter</h3>
+        <p>JSON formatla ve doğrula</p>
+      </button>
+      <button class="tool-card" (click)="openUtilityTool('urlEncoder')">
+        <div class="tool-icon">
+          <i class="bi bi-link-45deg"></i>
+        </div>
+        <h3>URL Encoder/Decoder</h3>
+        <p>URL kodlama/çözme</p>
+      </button>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <!-- Admin Signin Modal -->
+  <div class="modal-overlay" *ngIf="activeModal === 'AdminSigninModal'" (click)="closeModal()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Admin Signin</h2>
+        <button class="btn-close" (click)="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <app-admin-signin-modal></app-admin-signin-modal>
+      </div>
+    </div>
+  </div>
+
+  <!-- Users Management Modal -->
+  <div class="modal-overlay" *ngIf="activeModal === 'UsersManagementModal'" (click)="closeModal()">
+    <div class="modal-content modal-lg" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Users Management</h2>
+        <button class="btn-close" (click)="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <app-user-management></app-user-management>
+      </div>
+    </div>
+  </div>
+
+  <!-- System Log Modal -->
+  <div class="modal-overlay" *ngIf="activeModal === 'SystemLogModal'" (click)="closeModal()">
+    <div class="modal-content modal-lg" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>System Log</h2>
+        <button class="btn-close" (click)="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <app-logs></app-logs>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Reports Modal -->
+  <div class="modal-overlay" *ngIf="activeModal === 'UserReportsModal'" (click)="closeModal()">
+    <div class="modal-content modal-lg" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>User Reports</h2>
+        <button class="btn-close" (click)="closeModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="empty-modal">Bu özellik yakında eklenecek.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Utility Tool Modals -->
+  <!-- Color Picker -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'colorPicker'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Renk Seçici</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <div class="color-picker-wrapper">
+            <input type="color" [(ngModel)]="selectedColor" (input)="updateColorFormats()" class="color-input" />
+            <div class="color-preview" [style.background-color]="selectedColor"></div>
+          </div>
+          <div class="color-formats">
+            <div class="format-item">
+              <label>HEX</label>
+              <input type="text" [(ngModel)]="hexColor" (input)="updateFromHex()" class="form-control" />
+            </div>
+            <div class="format-item">
+              <label>RGB</label>
+              <input type="text" [value]="rgbColor" readonly class="form-control" />
+            </div>
+            <div class="format-item">
+              <label>HSL</label>
+              <input type="text" [value]="hslColor" readonly class="form-control" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Text Utils -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'textUtils'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Metin Araçları</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <textarea [(ngModel)]="textInput" (input)="updateTextStats()" class="form-control textarea-large" placeholder="Metninizi buraya yazın..."></textarea>
+          <div class="text-stats">
+            <div class="stat-item">
+              <span class="stat-label">Karakter:</span>
+              <span class="stat-value">{{ textStats.characters }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Kelime:</span>
+              <span class="stat-value">{{ textStats.words }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">Satır:</span>
+              <span class="stat-value">{{ textStats.lines }}</span>
+            </div>
+          </div>
+          <div class="text-actions">
+            <button class="btn btn-secondary" (click)="transformText('uppercase')">BÜYÜK HARF</button>
+            <button class="btn btn-secondary" (click)="transformText('lowercase')">küçük harf</button>
+            <button class="btn btn-secondary" (click)="transformText('title')">Başlık Formatı</button>
+            <button class="btn btn-secondary" (click)="transformText('sentence')">Cümle formatı</button>
+            <button class="btn btn-secondary" (click)="copyToClipboard()">Kopyala</button>
+            <button class="btn btn-secondary" (click)="clearText()">Temizle</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Password Generator -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'passwordGen'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Şifre Üretici</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <div class="password-display">
+            <input type="text" [value]="generatedPassword" readonly class="form-control" />
+            <button class="btn btn-primary" (click)="copyPassword()">
+              <i class="bi bi-clipboard"></i> Kopyala
+            </button>
+          </div>
+          <div class="password-options">
+            <label class="checkbox-label">
+              <input type="checkbox" [(ngModel)]="passwordOptions.uppercase" />
+              <span>Büyük Harf (A-Z)</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" [(ngModel)]="passwordOptions.lowercase" />
+              <span>Küçük Harf (a-z)</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" [(ngModel)]="passwordOptions.numbers" />
+              <span>Sayılar (0-9)</span>
+            </label>
+            <label class="checkbox-label">
+              <input type="checkbox" [(ngModel)]="passwordOptions.symbols" />
+              <span>Semboller (!&#64;#$...)</span>
+            </label>
+          </div>
+          <div class="password-length">
+            <label>Uzunluk: {{ passwordLength }}</label>
+            <input type="range" [(ngModel)]="passwordLength" min="8" max="64" class="slider" />
+          </div>
+          <button class="btn btn-primary btn-generate" (click)="generatePassword()">
+            <i class="bi bi-arrow-clockwise"></i> Yeni Şifre Oluştur
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Base64 Encoder/Decoder -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'base64'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>Base64 Encoder/Decoder</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <div class="encode-decode-tabs">
+            <button class="tab-btn" [class.active]="base64Mode === 'encode'" (click)="base64Mode = 'encode'">Encode</button>
+            <button class="tab-btn" [class.active]="base64Mode === 'decode'" (click)="base64Mode = 'decode'">Decode</button>
+          </div>
+          <textarea [(ngModel)]="base64Input" class="form-control textarea-large" placeholder="Metninizi buraya yazın..."></textarea>
+          <div class="action-buttons">
+            <button class="btn btn-primary" (click)="processBase64()">
+              {{ base64Mode === 'encode' ? 'Encode' : 'Decode' }}
+            </button>
+            <button class="btn btn-secondary" (click)="copyBase64()">Kopyala</button>
+            <button class="btn btn-secondary" (click)="clearBase64()">Temizle</button>
+          </div>
+          <textarea [value]="base64Output" readonly class="form-control textarea-large" placeholder="Sonuç burada görünecek..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JSON Formatter -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'jsonFormatter'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>JSON Formatter</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <textarea [(ngModel)]="jsonInput" class="form-control textarea-large" placeholder='JSON verinizi buraya yapıştırın...'></textarea>
+          <div class="action-buttons">
+            <button class="btn btn-primary" (click)="formatJSON()">Formatla</button>
+            <button class="btn btn-secondary" (click)="minifyJSON()">Minify</button>
+            <button class="btn btn-secondary" (click)="copyJSON()">Kopyala</button>
+            <button class="btn btn-secondary" (click)="clearJSON()">Temizle</button>
+          </div>
+          <div *ngIf="jsonError" class="error-message">{{ jsonError }}</div>
+          <textarea [value]="jsonOutput" readonly class="form-control textarea-large" placeholder="Formatlanmış JSON burada görünecek..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- URL Encoder/Decoder -->
+  <div class="modal-overlay" *ngIf="activeUtilityTool === 'urlEncoder'" (click)="closeUtilityTool()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h2>URL Encoder/Decoder</h2>
+        <button class="btn-close" (click)="closeUtilityTool()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="utility-tool">
+          <div class="encode-decode-tabs">
+            <button class="tab-btn" [class.active]="urlMode === 'encode'" (click)="urlMode = 'encode'">Encode</button>
+            <button class="tab-btn" [class.active]="urlMode === 'decode'" (click)="urlMode = 'decode'">Decode</button>
+          </div>
+          <textarea [(ngModel)]="urlInput" class="form-control textarea-large" placeholder="URL veya metin girin..."></textarea>
+          <div class="action-buttons">
+            <button class="btn btn-primary" (click)="processURL()">
+              {{ urlMode === 'encode' ? 'Encode' : 'Decode' }}
+            </button>
+            <button class="btn btn-secondary" (click)="copyURL()">Kopyala</button>
+            <button class="btn btn-secondary" (click)="clearURL()">Temizle</button>
+          </div>
+          <textarea [value]="urlOutput" readonly class="form-control textarea-large" placeholder="Sonuç burada görünecek..."></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

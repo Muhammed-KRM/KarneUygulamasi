@@ -1,0 +1,640 @@
+@use 'sass:color';
+@use 'src/app/styles/variables' as *;
+@use 'src/app/styles/mixins' as *;
+
+.settings-container {
+  padding: $spacing-2xl $spacing-xl;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: calc(100vh - 200px);
+  display: block;
+  visibility: visible;
+  opacity: 1;
+
+  @media (max-width: $breakpoint-md) {
+    padding: $spacing-lg $spacing-md;
+  }
+}
+
+.page-header {
+  margin-bottom: $spacing-2xl;
+  text-align: center;
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, $accent-color, $primary-color);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: $spacing-sm;
+  }
+
+  .subtitle {
+    color: $text-secondary;
+    font-size: 1.1rem;
+  }
+}
+
+// Tab Navigation
+.tabs-container {
+  display: flex;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-2xl;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  @media (max-width: $breakpoint-md) {
+    gap: $spacing-xs;
+  }
+}
+
+.tab-button {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  padding: $spacing-md $spacing-lg;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: $text-secondary;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all $transition-base ease;
+  white-space: nowrap;
+
+  i {
+    font-size: 1.2rem;
+  }
+
+  &:hover {
+    color: $text-color;
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  &.active {
+    color: $accent-color;
+    border-bottom-color: $accent-color;
+    background: rgba($accent-color, 0.1);
+  }
+
+  @media (max-width: $breakpoint-md) {
+    padding: $spacing-sm $spacing-md;
+    font-size: 0.9rem;
+
+    span {
+      display: none;
+    }
+  }
+}
+
+// Tab Content
+.tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tab-panel {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.settings-card {
+  background: $background-card;
+  border-radius: $radius-xl;
+  padding: $spacing-2xl;
+  box-shadow: $shadow-lg;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+
+  h2 {
+    display: flex;
+    align-items: center;
+    gap: $spacing-md;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: $text-color;
+    margin-bottom: $spacing-2xl;
+    padding-bottom: $spacing-lg;
+    border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+
+    i {
+      color: $accent-color;
+      font-size: 1.5rem;
+    }
+  }
+
+  &.danger-zone {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.05), rgba(239, 68, 68, 0.02));
+  }
+}
+
+// Profile Image Section
+.profile-image-section {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-2xl;
+  margin-bottom: $spacing-2xl;
+
+  @media (max-width: $breakpoint-md) {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+
+.avatar-wrapper {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 4px solid rgba($accent-color, 0.3);
+  flex-shrink: 0;
+
+  .avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .upload-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity $transition-base ease;
+    cursor: pointer;
+
+    i {
+      color: white;
+      font-size: 2.5rem;
+    }
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+}
+
+.image-info {
+  flex: 1;
+
+  .upload-hint {
+    color: $text-color;
+    font-weight: 600;
+    margin-bottom: $spacing-xs;
+  }
+
+  .file-info {
+    color: $text-secondary;
+    font-size: 0.9rem;
+    margin-bottom: $spacing-md;
+  }
+}
+
+// Form Section
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+
+  label {
+    display: flex;
+    align-items: center;
+    gap: $spacing-sm;
+    color: $text-color;
+    font-weight: 600;
+    font-size: 0.95rem;
+
+    i {
+      color: $accent-color;
+      font-size: 1.1rem;
+    }
+  }
+
+  .form-control {
+    @include input;
+    width: 100%;
+    padding: $spacing-md $spacing-lg;
+    font-size: 1rem;
+    transition: all $transition-base ease;
+
+    &:focus {
+      border-color: $accent-color;
+      box-shadow: 0 0 0 3px rgba($accent-color, 0.1);
+    }
+  }
+
+  .form-hint {
+    color: $text-muted;
+    font-size: 0.85rem;
+    margin-top: -$spacing-xs;
+  }
+}
+
+// Password Strength
+.password-strength {
+  margin-top: $spacing-sm;
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+.strength-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: $radius-full;
+  overflow: hidden;
+}
+
+.strength-fill {
+  height: 100%;
+  border-radius: $radius-full;
+  transition: all $transition-base ease;
+}
+
+.strength-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  min-width: 80px;
+  text-align: right;
+}
+
+// Divider
+.divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: $spacing-2xl 0;
+}
+
+// Connection Item
+.connection-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-lg;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: $radius-lg;
+  margin-bottom: $spacing-lg;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.connection-info {
+  display: flex;
+  align-items: center;
+  gap: $spacing-lg;
+  flex: 1;
+}
+
+.connection-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: $radius-lg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: white;
+  flex-shrink: 0;
+
+  &.mal-icon {
+    background: linear-gradient(135deg, #2e51a2, #1e3a8a);
+  }
+}
+
+.connection-details {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+
+  .connection-name {
+    color: $text-color;
+    font-weight: 600;
+    font-size: 1.1rem;
+  }
+
+  .connection-status {
+    display: flex;
+    align-items: center;
+    gap: $spacing-xs;
+    font-size: 0.9rem;
+    color: $text-muted;
+
+    &.connected {
+      color: #22c55e;
+    }
+
+    i {
+      font-size: 1rem;
+    }
+  }
+}
+
+.connection-actions {
+  display: flex;
+  gap: $spacing-sm;
+}
+
+.connection-info-box {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-md;
+  padding: $spacing-lg;
+  background: rgba($primary-color, 0.1);
+  border: 1px solid rgba($primary-color, 0.2);
+  border-radius: $radius-lg;
+  margin-top: $spacing-lg;
+
+  i {
+    color: $primary-color;
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  p {
+    color: $text-secondary;
+    margin: 0;
+    line-height: 1.6;
+  }
+}
+
+// Setting Item (Toggle Switches)
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $spacing-lg;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: $radius-lg;
+  margin-bottom: $spacing-md;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.setting-info {
+  flex: 1;
+}
+
+.setting-label {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  color: $text-color;
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: $spacing-xs;
+
+  i {
+    color: $accent-color;
+    font-size: 1.2rem;
+  }
+}
+
+.setting-description {
+  color: $text-secondary;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.setting-control {
+  flex-shrink: 0;
+}
+
+// Toggle Switch
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 60px;
+  height: 30px;
+
+  input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+
+    &:checked + .slider {
+      background-color: $accent-color;
+
+      &:before {
+        transform: translateX(30px);
+      }
+    }
+  }
+
+  .slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.2);
+    transition: $transition-base;
+    border-radius: $radius-full;
+
+    &:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 4px;
+      bottom: 4px;
+      background-color: white;
+      transition: $transition-base;
+      border-radius: 50%;
+    }
+  }
+}
+
+// Danger Zone
+.danger-zone-content {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.warning-box {
+  display: flex;
+  align-items: flex-start;
+  gap: $spacing-lg;
+  padding: $spacing-xl;
+  background: rgba(239, 68, 68, 0.1);
+  border: 2px solid rgba(239, 68, 68, 0.3);
+  border-radius: $radius-lg;
+
+  i {
+    color: #ef4444;
+    font-size: 2rem;
+    flex-shrink: 0;
+  }
+
+  h3 {
+    color: #ef4444;
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin-bottom: $spacing-xs;
+  }
+
+  p {
+    color: $text-secondary;
+    margin: 0;
+    line-height: 1.6;
+  }
+}
+
+.delete-options {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  color: $text-color;
+  font-weight: 500;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    cursor: pointer;
+  }
+}
+
+// Buttons
+.btn {
+  @include button-primary;
+  padding: $spacing-md $spacing-xl;
+  font-size: 1rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+  border-radius: $radius-lg;
+  transition: all $transition-base ease;
+  cursor: pointer;
+  border: none;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &.btn-primary {
+    background: linear-gradient(135deg, $accent-color, $primary-color);
+    color: white;
+
+    &:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba($accent-color, 0.4);
+    }
+  }
+
+  &.btn-outline-primary {
+    background: transparent;
+    border: 2px solid $primary-color;
+    color: $primary-color;
+
+    &:hover:not(:disabled) {
+      background: $primary-color;
+      color: white;
+    }
+  }
+
+  &.btn-outline-danger {
+    background: transparent;
+    border: 2px solid #ef4444;
+    color: #ef4444;
+
+    &:hover:not(:disabled) {
+      background: #ef4444;
+      color: white;
+    }
+  }
+
+  &.btn-danger {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    color: white;
+
+    &:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+    }
+  }
+
+  &.btn-sm {
+    padding: $spacing-sm $spacing-md;
+    font-size: 0.9rem;
+  }
+
+  i {
+    font-size: 1.1rem;
+  }
+}
+
+// Responsive
+@media (max-width: $breakpoint-md) {
+  .settings-container {
+    padding: $spacing-lg $spacing-md;
+  }
+
+  .page-header h1 {
+    font-size: 2rem;
+  }
+
+  .settings-card {
+    padding: $spacing-lg;
+  }
+
+  .profile-image-section {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .connection-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: $spacing-md;
+  }
+
+  .connection-actions {
+    width: 100%;
+
+    .btn {
+      flex: 1;
+    }
+  }
+}

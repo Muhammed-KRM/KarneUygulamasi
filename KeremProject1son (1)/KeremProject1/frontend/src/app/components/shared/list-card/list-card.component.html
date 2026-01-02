@@ -1,0 +1,10 @@
+<div class="list-card" [routerLink]="['/list/view', list.id]" (click)="handleClick()">
+  <h3>{{ list.title }}</h3>
+  <p>Mod: {{ list.mode }}</p>
+  <p>Item Sayısı: {{ list.itemCount || 0 }}</p>
+  <div class="actions" *ngIf="showActions" (click)="$event.stopPropagation()">
+    <button class="btn btn-sm" (click)="handleShare($event)">Paylaş</button>
+    <button class="btn btn-sm btn-danger" (click)="handleDelete($event)">Sil</button>
+  </div>
+</div>
+

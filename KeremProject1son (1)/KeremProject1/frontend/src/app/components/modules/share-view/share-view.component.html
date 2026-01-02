@@ -1,0 +1,45 @@
+<div class="share-view-container" *ngIf="list">
+  <div class="header">
+    <h1>{{ list.title }}</h1>
+    <button class="btn btn-primary" *ngIf="authService.isAuthenticated()" (click)="copyList()">
+      Kopyala
+    </button>
+    <button class="btn btn-secondary" *ngIf="!authService.isAuthenticated()" routerLink="/login">
+      Giriş Yap
+    </button>
+  </div>
+
+  <div class="list-content">
+    <!-- Liste içeriği list-view ile aynı -->
+    <div class="tiers-container" *ngFor="let tier of list.tiers">
+      <div class="tier-header" [style.background-color]="tier.color">
+        <h3>{{ tier.title }}</h3>
+      </div>
+      <div class="tier-items">
+        <div class="anime-item" *ngFor="let item of tier.items">
+          <img [src]="item.imageUrl" [alt]="item.title" />
+          <span>{{ item.title }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="comments-section">
+    <h2>Yorumlar</h2>
+    <div class="comment-form" *ngIf="authService.isAuthenticated()">
+      <textarea [(ngModel)]="newComment" placeholder="Yorum yazın..."></textarea>
+      <button class="btn btn-primary" (click)="addComment()">Gönder</button>
+    </div>
+    <div class="comments-list">
+      <div class="comment-item" *ngFor="let comment of comments">
+        <strong>{{ comment.username }}</strong>
+        <p>{{ comment.content }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div *ngIf="loading" class="loading">
+  <p>Yükleniyor...</p>
+</div>
+

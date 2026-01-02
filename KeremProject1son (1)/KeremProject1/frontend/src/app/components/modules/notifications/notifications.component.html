@@ -1,0 +1,35 @@
+<div class="notifications-container">
+  <div class="header">
+    <h1>Bildirimler</h1>
+    <button class="btn btn-primary" (click)="markAllAsRead()" *ngIf="unreadCount > 0">
+      Tümünü Okundu İşaretle
+    </button>
+  </div>
+
+  <div class="notifications-list">
+    <div class="notification-item" *ngFor="let notification of notifications" 
+         [class.unread]="!notification.isRead">
+      <div class="notification-content">
+        <p>{{ notification.message }}</p>
+        <small>{{ notification.createdAt | date:'short' }}</small>
+      </div>
+      <div class="notification-actions">
+        <button class="btn btn-sm" (click)="markAsRead(notification.id)" *ngIf="!notification.isRead">
+          Okundu
+        </button>
+        <button class="btn btn-sm btn-danger" (click)="deleteNotification(notification.id)">
+          Sil
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="notifications.length === 0 && !loading" class="empty">
+    <p>Bildirim yok</p>
+  </div>
+
+  <div *ngIf="loading" class="loading">
+    <p>Yükleniyor...</p>
+  </div>
+</div>
+

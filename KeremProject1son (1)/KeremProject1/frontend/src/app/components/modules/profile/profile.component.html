@@ -1,0 +1,90 @@
+<div class="profile-container" *ngIf="profile">
+  <div class="profile-header">
+    <img [src]="getProfileAvatar()" [alt]="profile.username" class="avatar" />
+    <div class="profile-info">
+      <h1>{{ profile.username }}</h1>
+      <p *ngIf="profile.malUsername">MAL: {{ profile.malUsername }}</p>
+      <div class="stats">
+        <div class="stat">
+          <strong>{{ profile.totalLists }}</strong>
+          <span>Liste</span>
+        </div>
+        <div class="stat">
+          <strong>{{ profile.totalFollowers }}</strong>
+          <span>Takipçi</span>
+        </div>
+        <div class="stat">
+          <strong>{{ profile.totalFollowing }}</strong>
+          <span>Takip</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" *ngIf="!isOwnProfile" (click)="followUser()">
+        {{ profile.isFollowing ? 'Takipten Çık' : 'Takip Et' }}
+      </button>
+      <button class="btn btn-secondary" *ngIf="isOwnProfile" routerLink="/profile/settings">
+        Ayarlar
+      </button>
+    </div>
+  </div>
+
+  <div class="lists-section">
+    <h2>Listeler</h2>
+    <div class="lists-grid" *ngIf="lists.length > 0; else noLists">
+      <ng-container *ngFor="let list of lists">
+        <div class="list-card" *ngIf="isOwnProfile" [routerLink]="['/list/edit', list.id]">
+          <!-- Liste Görseli -->
+          <div class="list-card-image" *ngIf="list.listImageLink">
+            <img 
+              [src]="getListImageUrl(list.listImageLink)" 
+              [alt]="list.title"
+              (error)="onImageError($event)"
+            />
+          </div>
+          <div class="list-card-image placeholder" *ngIf="!list.listImageLink">
+            <i class="bi bi-image"></i>
+            <span>Görsel Yok</span>
+          </div>
+          
+          <div class="list-card-content">
+            <h3>{{ list.title }}</h3>
+            <p>{{ list.mode }}</p>
+            <p class="list-meta" *ngIf="list.itemCount !== undefined">Item Sayısı: {{ list.itemCount }}</p>
+            <div class="list-actions">
+              <button class="btn btn-sm btn-primary" (click)="editList(list.id, $event)">
+                <i class="bi bi-pencil"></i> Düzenle
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="list-card" *ngIf="!isOwnProfile" [routerLink]="['/list/view', list.id]">
+          <!-- Liste Görseli -->
+          <div class="list-card-image" *ngIf="list.listImageLink">
+            <img 
+              [src]="getListImageUrl(list.listImageLink)" 
+              [alt]="list.title"
+              (error)="onImageError($event)"
+            />
+          </div>
+          <div class="list-card-image placeholder" *ngIf="!list.listImageLink">
+            <i class="bi bi-image"></i>
+            <span>Görsel Yok</span>
+          </div>
+          
+          <div class="list-card-content">
+            <h3>{{ list.title }}</h3>
+            <p>{{ list.mode }}</p>
+            <p class="list-meta" *ngIf="list.itemCount !== undefined">Item Sayısı: {{ list.itemCount }}</p>
+          </div>
+        </div>
+      </ng-container>
+    </div>
+    <ng-template #noLists>
+      <p class="no-lists">Henüz liste oluşturulmamış.</p>
+    </ng-template>
+  </div>
+</div>
+
+<div *ngIf="loading" class="loading">
+  <p>Yükleniyor...</p>
+</div>
+

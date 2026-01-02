@@ -1,0 +1,271 @@
+<div class="edit-container" *ngIf="list">
+  <div class="edit-layout">
+    <!-- Ana İçerik -->
+    <div class="main-content">
+      <!-- Header -->
+      <div class="header">
+        <div class="title-section">
+          <h1 *ngIf="!editingTitle" (click)="editingTitle = true">
+            {{ list.title }}
+            <i class="bi bi-pencil-square"></i>
+          </h1>
+          <div *ngIf="editingTitle" class="title-edit">
+            <input type="text" [(ngModel)]="editedTitle" class="title-input" 
+                   (keyup.enter)="updateTitle()" (keyup.escape)="editingTitle = false" />
+            <button class="btn btn-sm btn-primary" (click)="updateTitle()">
+              <i class="bi bi-check"></i>
+            </button>
+            <button class="btn btn-sm btn-secondary" (click)="editingTitle = false">
+              <i class="bi bi-x"></i>
+            </button>
+          </div>
+        </div>
+        <div class="actions">
+          <!-- Liste Görseli Yükleme -->
+          <div class="image-upload-section" *ngIf="isOwner">
+            <label class="btn btn-secondary btn-image-upload" [class.uploading]="uploadingImage">
+              <i class="bi bi-image" *ngIf="!uploadingImage"></i>
+              <i class="bi bi-hourglass-split" *ngIf="uploadingImage"></i>
+              <span *ngIf="!uploadingImage">{{ listImageLink ? 'Görsel Değiştir' : 'Görsel Ekle' }}</span>
+              <span *ngIf="uploadingImage">Yükleniyor...</span>
+              <input 
+                type="file" 
+                accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" 
+                (change)="onImageFileSelected($event)"
+                hidden
+                [disabled]="uploadingImage"
+              />
+            </label>
+            <button 
+              *ngIf="listImageLink && isOwner"
+              class="btn btn-sm btn-danger" 
+              (click)="removeListImage()"
+              [disabled]="uploadingImage"
+              title="Görseli Kaldır">
+              <i class="bi bi-trash"></i>
+            </button>
+          </div>
+          <button class="btn btn-primary" (click)="saveList()" [disabled]="loading">
+            <i class="bi bi-save"></i> Kaydet
+          </button>
+          <button class="btn btn-secondary" routerLink="/dashboard">
+            <i class="bi bi-x-circle"></i> İptal
+          </button>
+        </div>
+      </div>
+
+      <!-- Liste Görseli Önizleme -->
+      <div class="list-image-preview" *ngIf="(previewImageUrl || listImageLink) && isOwner">
+        <div class="image-wrapper">
+          <img 
+            [src]="previewImageUrl || getListImageUrl(listImageLink)" 
+            [alt]="list.title + ' görseli'"
+            (error)="onImageError($event)"
+          />
+        </div>
+      </div>
+      
+      <!-- Liste Görseli (View Mode - Herkes Görebilir) -->
+      <div class="list-image-preview" *ngIf="listImageLink && !isOwner">
+        <div class="image-wrapper">
+          <img 
+            [src]="getListImageUrl(listImageLink)" 
+            [alt]="list.title + ' görseli'"
+            (error)="onImageError($event)"
+          />
+        </div>
+      </div>
+
+      <!-- Mode Actions -->
+      <div class="mode-actions" *ngIf="list.mode !== 'Fusion'">
+        <button class="btn btn-outline" (click)="convertToFusion()" *ngIf="list.mode === 'Tiered'">
+          <i class="bi bi-layers"></i> Fusion Moduna Çevir
+        </button>
+        <button class="btn btn-outline" (click)="convertToRanked()" *ngIf="list.mode !== 'Ranked'">
+          <i class="bi bi-list-ol"></i> Ranked Moduna Çevir
+        </button>
+      </div>
+
+      <!-- Tier Management -->
+      <div class="tier-management" *ngIf="list.mode !== 'Ranked'">
+        <button class="btn btn-outline-primary" (click)="openAddTierModal()">
+          <i class="bi bi-plus-circle"></i> Yeni Tier Ekle
+        </button>
+      </div>
+
+      <!-- List Content -->
+      <div class="list-content">
+        <!-- Fusion/Tiered Mode -->
+        <div *ngIf="list.mode !== 'Ranked' && list.tiers && list.tiers.length > 0">
+          <div class="tier-container" *ngFor="let tier of list.tiers; trackBy: trackByTierId">
+            <div class="tier-header" [style.background-color]="tier.color">
+              <div class="tier-title-section">
+                <h3>{{ tier.title }}</h3>
+                <span class="item-count">{{ (tier.items && tier.items.length) || 0 }} anime</span>
+              </div>
+              <div class="tier-actions">
+                <button class="btn-icon" (click)="openEditTierModal(tier)" title="Tier Düzenle">
+                  <i class="bi bi-pencil"></i>
+                </button>
+                <button class="btn-icon btn-icon-danger" (click)="removeTier(tier.id)" title="Tier Sil">
+                  <i class="bi bi-trash"></i>
+                </button>
+              </div>
+            </div>
+            
+            <div class="tier-items" 
+                 [id]="getTierId(tier.id)"
+                 cdkDropList
+                 cdkDropListOrientation="mixed"
+                 [cdkDropListData]="tier.items || []"
+                 [cdkDropListConnectedTo]="connectedTierIds"
+                 (cdkDropListDropped)="dropItem($event, tier.id)">
+              <div class="anime-item" 
+                   *ngFor="let item of tier.items || []; let i = index; trackBy: trackByItemId"
+                   cdkDrag>
+                <span class="rank-badge">{{ item.rankInTier || (i + 1) }}</span>
+                <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+                <div class="anime-info">
+                  <span class="anime-title">{{ item.title }}</span>
+                </div>
+                <button class="btn-icon btn-icon-danger" (click)="removeItem(item.id); $event.stopPropagation()" title="Sil">
+                  <i class="bi bi-trash"></i>
+                </button>
+                <div *cdkDragPlaceholder class="drag-placeholder"></div>
+
+                <!-- Özel drag preview - küçük ve sade kart, rank + isim görünür -->
+                <ng-template cdkDragPreview>
+                  <div class="anime-item anime-item-preview">
+                    <span class="rank-badge">{{ item.rankInTier || (i + 1) }}</span>
+                    <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+                    <div class="anime-info">
+                      <span class="anime-title">{{ item.title }}</span>
+                    </div>
+                  </div>
+                </ng-template>
+              </div>
+              
+              <button class="add-anime-btn" (click)="openAddAnimeModal(tier.id)">
+                <i class="bi bi-plus-circle"></i> Anime Ekle
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ranked Mode -->
+        <div class="ranked-list" *ngIf="list.mode === 'Ranked' && list.tiers && list.tiers.length > 0 && list.tiers[0].items">
+          <div class="ranked-items" 
+               cdkDropList
+               cdkDropListOrientation="vertical"
+               [cdkDropListData]="list.tiers[0].items || []"
+               (cdkDropListDropped)="dropRankedItem($event)">
+            <div class="ranked-item" 
+                 *ngFor="let item of list.tiers[0].items || []; let i = index; trackBy: trackByItemId"
+                 cdkDrag>
+              <span class="rank-number">{{ item.rankInTier || (i + 1) }}</span>
+              <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+              <div class="anime-info">
+                <span class="anime-title">{{ item.title }}</span>
+              </div>
+              <button class="btn-icon btn-icon-danger" (click)="removeItem(item.id); $event.stopPropagation()" title="Sil">
+                <i class="bi bi-trash"></i>
+              </button>
+              <div *cdkDragPlaceholder class="drag-placeholder"></div>
+
+              <!-- Ranked için özel drag preview - dar, gölgeyle vurgulu kart -->
+              <ng-template cdkDragPreview>
+                <div class="ranked-item ranked-item-preview">
+                  <span class="rank-number">{{ item.rankInTier || (i + 1) }}</span>
+                  <img [src]="item.imageUrl" [alt]="item.title" class="anime-thumbnail" />
+                  <div class="anime-info">
+                    <span class="anime-title">{{ item.title }}</span>
+                  </div>
+                </div>
+              </ng-template>
+            </div>
+          </div>
+          <button class="add-anime-btn" (click)="openAddAnimeModal(list.tiers[0].id)">
+            <i class="bi bi-plus-circle"></i> Anime Ekle
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar - Statistics -->
+    <aside class="sidebar" *ngIf="statistics">
+      <div class="stats-card">
+        <h3>İstatistikler</h3>
+        <div class="stat-item">
+          <span class="stat-label">Toplam Anime</span>
+          <span class="stat-value">{{ statistics.totalItems }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Tier Sayısı</span>
+          <span class="stat-value">{{ statistics.totalTiers }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Benzersiz Anime</span>
+          <span class="stat-value">{{ statistics.uniqueAnimeCount }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Oluşturulma</span>
+          <span class="stat-value">{{ statistics.createdAt | date:'short' }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-label">Son Güncelleme</span>
+          <span class="stat-value">{{ statistics.lastModified | date:'short' }}</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<div *ngIf="loading && !list" class="loading">
+  <p>Yükleniyor...</p>
+</div>
+
+<div *ngIf="error && !list && !loading" class="error-message">
+  <p>{{ error }}</p>
+  <button class="btn btn-primary" (click)="goToDashboard()">
+    Dashboard'a Dön
+  </button>
+</div>
+
+<div *ngIf="list && !isOwner" class="access-denied">
+  <p>Bu listeyi sadece sahibi düzenleyebilir.</p>
+  <button class="btn btn-primary" [routerLink]="['/list/view', listId]">Listeyi Görüntüle</button>
+</div>
+
+<!-- Anime Search Modal -->
+<app-anime-search-modal 
+  *ngIf="showSearchModal && selectedTierId"
+  [listId]="listId"
+  [tierId]="selectedTierId"
+  [currentTierItems]="getTierItems(selectedTierId)"
+  (onClose)="showSearchModal = false; selectedTierId = null"
+  (onItemAdded)="onItemAdded($event)">
+</app-anime-search-modal>
+
+<!-- Tier Modal -->
+<div class="modal-overlay" *ngIf="showTierModal" (click)="showTierModal = false">
+  <div class="modal-content" (click)="$event.stopPropagation()">
+    <div class="modal-header">
+      <h2>{{ editingTier ? 'Tier Düzenle' : 'Yeni Tier Ekle' }}</h2>
+      <button class="btn-close" (click)="showTierModal = false">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>Tier Başlığı</label>
+        <input type="text" [(ngModel)]="newTierTitle" class="form-control" placeholder="Örn: S Tier" />
+      </div>
+      <div class="form-group">
+        <label>Renk</label>
+        <input type="color" [(ngModel)]="newTierColor" class="color-picker" />
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-secondary" (click)="showTierModal = false">İptal</button>
+        <button class="btn btn-primary" (click)="saveTier()">Kaydet</button>
+      </div>
+    </div>
+  </div>
+</div>

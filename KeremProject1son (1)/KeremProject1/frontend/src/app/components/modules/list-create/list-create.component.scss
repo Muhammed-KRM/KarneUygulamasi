@@ -1,0 +1,187 @@
+@use '../../../styles/variables' as *;
+
+.create-container {
+  padding: $spacing-xl 0;
+  max-width: 800px;
+  margin: 0 auto;
+  
+  @media (max-width: $breakpoint-md) {
+    padding: $spacing-lg $spacing-sm;
+  }
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: $spacing-xl;
+  
+  h1 {
+    color: white;
+    margin-bottom: $spacing-xs;
+  }
+  
+  .subtitle {
+    color: $text-secondary;
+    font-size: 1.1rem;
+  }
+}
+
+.create-card {
+  background-color: $background-card;
+  border-radius: $radius-lg;
+  padding: $spacing-xl;
+  box-shadow: $shadow-lg;
+  border: 1px solid rgba(255,255,255,0.05);
+}
+
+.form-group {
+  margin-bottom: $spacing-lg;
+  
+  label {
+    color: #ddd;
+    margin-bottom: 8px;
+    display: block;
+    font-weight: 500;
+  }
+}
+
+.mode-selection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: $spacing-md;
+  
+  .mode-option {
+    cursor: pointer;
+    position: relative;
+    
+    input[type="radio"] {
+      position: absolute;
+      opacity: 0;
+    }
+    
+    .mode-content {
+      background-color: rgba(255,255,255,0.03);
+      border: 2px solid transparent;
+      border-radius: $radius-md;
+      padding: $spacing-md;
+      display: flex;
+      align-items: center;
+      gap: $spacing-md;
+      transition: all 0.2s ease;
+      height: 100%;
+      
+      .mode-icon {
+        font-size: 2rem;
+        color: $text-muted;
+      }
+      
+      .mode-info {
+        display: flex;
+        flex-direction: column;
+        
+        .mode-title {
+          color: #fff;
+          font-weight: 600;
+          font-size: 1.1rem;
+        }
+        
+        .mode-desc {
+          color: $text-secondary;
+          font-size: 0.85rem;
+        }
+      }
+    }
+    
+    &:hover .mode-content {
+      background-color: rgba(255,255,255,0.08);
+    }
+    
+    &.selected .mode-content {
+      background-color: rgba($primary-color, 0.1);
+      border-color: $primary-color;
+      
+      .mode-icon {
+        color: $primary-color;
+      }
+    }
+  }
+}
+
+.checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  
+  input {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+  }
+  
+  .label-text {
+    color: #ddd;
+  }
+}
+
+.custom-tiers {
+  margin-top: $spacing-md;
+  background-color: rgba(0,0,0,0.2);
+  padding: $spacing-md;
+  border-radius: $radius-md;
+  border: 1px solid rgba(255,255,255,0.05);
+  
+  h3 {
+    font-size: 1.2rem;
+    margin-bottom: $spacing-md;
+    color: #fff;
+  }
+  
+  .tier-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .tier-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    
+    .color-picker {
+      width: 40px;
+      height: 40px;
+      padding: 0;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .tier-input {
+      flex: 1;
+    }
+    
+    .btn-icon-danger {
+      background: none;
+      border: none;
+      color: #ff5555;
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 4px;
+      
+      &:hover {
+        background-color: rgba(255, 85, 85, 0.1);
+      }
+    }
+  }
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-md;
+  margin-top: $spacing-xl;
+  border-top: 1px solid rgba(255,255,255,0.1);
+  padding-top: $spacing-lg;
+}
+

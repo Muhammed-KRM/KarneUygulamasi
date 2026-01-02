@@ -1,0 +1,55 @@
+<div class="home-container">
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="hero-content">
+      <h1 class="hero-title">Anime Tier Listeleri Oluştur</h1>
+      <p class="hero-subtitle">Favori animelerinizi sıralayın, tier listeleri oluşturun ve toplulukla paylaşın</p>
+      <div class="hero-actions">
+        <a routerLink="/dashboard" class="btn btn-primary btn-hero">
+          <i class="bi bi-plus-circle"></i> Liste Oluştur
+        </a>
+        <a routerLink="/discover" class="btn btn-secondary btn-hero">
+          <i class="bi bi-compass"></i> Keşfet
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features-section">
+    <div class="container">
+      <h2 class="section-title">Neler Yapabilirsiniz?</h2>
+      <div class="features-grid">
+        <div class="feature-card" *ngFor="let feature of features">
+          <div class="feature-icon">{{ feature.icon }}</div>
+          <h3 class="feature-title">{{ feature.title }}</h3>
+          <p class="feature-description">{{ feature.description }}</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works Section -->
+  <section class="how-it-works-section">
+    <div class="container">
+      <h2 class="section-title">Nasıl Çalışır?</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <div class="step-number">1</div>
+          <h3>Liste Oluştur</h3>
+          <p>Yeni bir tier listesi oluşturun veya şablonlardan birini seçin</p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">2</div>
+          <h3>Animeleri Ekle</h3>
+          <p>MyAnimeList'ten animeleri arayın ve listelerinize ekleyin</p>
+        </div>
+        <div class="step-card">
+          <div class="step-number">3</div>
+          <h3>Sırala ve Paylaş</h3>
+          <p>Animeleri sürükle-bırak ile sıralayın ve toplulukla paylaşın</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
