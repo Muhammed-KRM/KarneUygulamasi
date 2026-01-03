@@ -66,8 +66,7 @@ namespace KeremProject1backend.Operations
                     Id = user.Id,
                     Username = user.UserName,
                     Role = user.UserRole.ToString(),
-                    Token = token,
-                    MalUsername = user.MalUsername
+                    Token = token
                 };
 
                 response.Response = userDto;
@@ -203,7 +202,7 @@ namespace KeremProject1backend.Operations
                 // Gelecekte token blacklist mekanizması eklenebilir:
                 // - Token'ı veritabanında veya cache'de blacklist'e ekle
                 // - Her token doğrulamasında blacklist kontrolü yap
-                
+
                 response.SetUserID(userId);
                 return Task.FromResult(response.GenerateSuccess("Başarıyla çıkış yapıldı."));
             }

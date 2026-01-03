@@ -6,7 +6,6 @@ namespace KeremProject1backend.Models.Responses
         public string Username { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string UserImageLink { get; set; } = string.Empty;
-        public string? MalUsername { get; set; }
         public DateTime ModTime { get; set; }
     }
 
@@ -15,8 +14,6 @@ namespace KeremProject1backend.Models.Responses
         public int Id { get; set; }
         public string Username { get; set; } = string.Empty;
         public string UserImageLink { get; set; } = string.Empty;
-        public string? MalUsername { get; set; }
-        public int TotalLists { get; set; }
         public int TotalFollowers { get; set; }
         public DateTime ModTime { get; set; }
     }

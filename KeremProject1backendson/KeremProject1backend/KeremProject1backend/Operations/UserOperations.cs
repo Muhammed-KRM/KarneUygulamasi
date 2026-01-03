@@ -49,7 +49,7 @@ namespace KeremProject1backend.Operations
                 // Dosya dizinlerini al
                 string baseDirectory = configuration["AppSettings:FileSettings:BaseDirectory"] ?? "Files";
                 string userDirectory = Path.Combine(baseDirectory, "Users");
-                
+
                 // Dizin yoksa oluştur
                 if (!Directory.Exists(userDirectory))
                     Directory.CreateDirectory(userDirectory);
@@ -135,7 +135,6 @@ namespace KeremProject1backend.Operations
                     Id = user.Id,
                     Username = user.UserName,
                     Role = user.UserRole.ToString(),
-                    MalUsername = user.MalUsername,
                     ModTime = user.ModTime
                 };
 
@@ -200,7 +199,7 @@ namespace KeremProject1backend.Operations
                     {
                         currentUserId = SessionService.GetUserId(session);
                         var currentUser = await context.AppUsers.FindAsync(currentUserId.Value);
-                        isAdmin = currentUser != null && 
+                        isAdmin = currentUser != null &&
                                  (currentUser.UserRole == UserRole.Admin || currentUser.UserRole == UserRole.AdminAdmin);
                     }
                     catch { }
@@ -212,8 +211,7 @@ namespace KeremProject1backend.Operations
                 if (!string.IsNullOrWhiteSpace(request.SearchQuery))
                 {
                     string searchLower = request.SearchQuery.ToLower();
-                    query = query.Where(u => u.UserName.ToLower().Contains(searchLower) ||
-                                           (u.MalUsername != null && u.MalUsername.ToLower().Contains(searchLower)));
+                    query = query.Where(u => u.UserName.ToLower().Contains(searchLower));
                 }
 
                 // State filtresi
@@ -234,7 +232,6 @@ namespace KeremProject1backend.Operations
                     {
                         Id = u.Id,
                         Username = u.UserName,
-                        MalUsername = u.MalUsername,
                         ModTime = u.ModTime
                     })
                     .ToListAsync();
@@ -267,7 +264,6 @@ namespace KeremProject1backend.Operations
                     }
 
                     // İstatistikler
-                    user.TotalLists = await context.AnimeLists.CountAsync(l => l.AppUserId == user.Id);
                     user.TotalFollowers = await context.UserFollows.CountAsync(f => f.FollowingId == user.Id);
                 }
 
@@ -309,8 +305,7 @@ namespace KeremProject1backend.Operations
                 string searchLower = request.Query.ToLower();
                 var users = await context.AppUsers
                     .AsNoTracking()
-                    .Where(u => u.UserName.ToLower().Contains(searchLower) ||
-                               (u.MalUsername != null && u.MalUsername.ToLower().Contains(searchLower)))
+                    .Where(u => u.UserName.ToLower().Contains(searchLower))
                     .OrderBy(u => u.UserName)
                     .Skip((request.Page - 1) * request.Limit)
                     .Take(request.Limit)
@@ -318,14 +313,12 @@ namespace KeremProject1backend.Operations
                     {
                         Id = u.Id,
                         Username = u.UserName,
-                        MalUsername = u.MalUsername,
                         ModTime = u.ModTime
                     })
                     .ToListAsync();
 
                 int totalCount = await context.AppUsers
-                    .CountAsync(u => u.UserName.ToLower().Contains(searchLower) ||
-                                   (u.MalUsername != null && u.MalUsername.ToLower().Contains(searchLower)));
+                    .CountAsync(u => u.UserName.ToLower().Contains(searchLower));
 
                 // Profil resmi linklerini oluştur
                 string downloadServiceLink = configuration["AppSettings:FileSettings:DownloadServiceLink"] ?? "https://localhost:7132/api/file/download";
@@ -354,7 +347,6 @@ namespace KeremProject1backend.Operations
                         user.UserImageLink = string.Empty;
                     }
 
-                    user.TotalLists = await context.AnimeLists.CountAsync(l => l.AppUserId == user.Id);
                     user.TotalFollowers = await context.UserFollows.CountAsync(f => f.FollowingId == user.Id);
                 }
 
@@ -413,7 +405,7 @@ namespace KeremProject1backend.Operations
                 // Admin kontrolü: Admin, AdminAdmin rolü atayamaz
                 if (isAdmin && !isOwnAccount && request.Role.HasValue)
                 {
-                    if (currentUser.UserRole == UserRole.Admin && 
+                    if (currentUser.UserRole == UserRole.Admin &&
                         (request.Role.Value == UserRole.Admin || request.Role.Value == UserRole.AdminAdmin))
                         return response.GenerateError(2026, "Admin, Admin veya AdminAdmin rolü atayamaz.");
                 }
@@ -428,18 +420,12 @@ namespace KeremProject1backend.Operations
                     targetUser.UserName = request.Username.ToLower();
                 }
 
-                // MAL username güncelleme
-                if (request.MalUsername != null)
-                {
-                    targetUser.MalUsername = request.MalUsername;
-                }
-
                 // Admin için: Rol ve durum güncelleme
                 if (isAdmin && !isOwnAccount)
                 {
                     if (request.Role.HasValue)
                         targetUser.UserRole = request.Role.Value;
-                    
+
                     if (request.State.HasValue)
                         targetUser.State = request.State.Value;
                 }
@@ -499,7 +485,7 @@ namespace KeremProject1backend.Operations
         }
 
         /// <summary>
-        /// Profil güncelle (kullanıcı adı ve MAL username)
+        /// Profil güncelle (kullanıcı adı)
         /// </summary>
         public static async Task<BaseResponse> UpdateProfile(
             UpdateProfileRequest request,
@@ -523,12 +509,6 @@ namespace KeremProject1backend.Operations
                         return response.GenerateError(2018, "Bu kullanıcı adı zaten alınmış.");
 
                     user.UserName = request.Username.ToLower();
-                }
-
-                // MAL username güncelleme
-                if (request.MalUsername != null)
-                {
-                    user.MalUsername = request.MalUsername;
                 }
 
                 user.ModTime = DateTime.Now;
@@ -599,7 +579,6 @@ namespace KeremProject1backend.Operations
                     return response.GenerateError(2021, "Bu işlem için yetkiniz yok.");
 
                 var userToDelete = await context.AppUsers
-                    .Include(u => u.AnimeLists)
                     .FirstOrDefaultAsync(u => u.Id == request.UserId);
 
                 if (userToDelete == null)

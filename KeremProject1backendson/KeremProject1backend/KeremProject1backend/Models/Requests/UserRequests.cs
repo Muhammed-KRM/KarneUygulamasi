@@ -24,7 +24,6 @@ namespace KeremProject1backend.Models.Requests
     {
         public int? TargetUserId { get; set; } // Admin için: Güncellenecek kullanıcı ID'si (null ise kendi hesabı)
         public string? Username { get; set; }
-        public string? MalUsername { get; set; }
         public UserRole? Role { get; set; } // Admin için: Kullanıcı rolü güncelleme
         public bool? State { get; set; } // Admin için: Kullanıcı durumu (aktif/pasif)
     }
@@ -34,7 +33,6 @@ namespace KeremProject1backend.Models.Requests
         [Required]
         public int TargetUserId { get; set; }
         public string? Username { get; set; }
-        public string? MalUsername { get; set; }
         public UserRole? Role { get; set; }
         public bool? State { get; set; }
     }
@@ -53,9 +51,6 @@ namespace KeremProject1backend.Models.Requests
     {
         [StringLength(50)]
         public string? Username { get; set; }
-
-        [StringLength(50)]
-        public string? MalUsername { get; set; }
     }
 
     public class DeleteUserRequest
