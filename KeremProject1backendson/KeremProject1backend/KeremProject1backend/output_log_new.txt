@@ -1,0 +1,11 @@
+﻿  Geri y├╝klenecek projeler belirleniyor...
+  Geri y├╝kleme i├ğin t├╝m projeler g├╝ncel.
+D:\KarneProject\KeremProject1backendson\KeremProject1backend\KeremProject1backend\Middlewares\GlobalExceptionMiddleware.cs(1,35): error CS0234: 'Responses' t├╝r veya ad alan─▒ ad─▒ 'KeremProject1backend.Models' ad alan─▒nda yok (bir derleme ba┼şvurunuz mu eksik?) [D:\KarneProject\KeremProject1backendson\KeremProject1backend\KeremProject1backend\KeremProject1backend.csproj]
+
+Olu┼şturma BA┼ŞARISIZ OLDU.
+
+D:\KarneProject\KeremProject1backendson\KeremProject1backend\KeremProject1backend\Middlewares\GlobalExceptionMiddleware.cs(1,35): error CS0234: 'Responses' t├╝r veya ad alan─▒ ad─▒ 'KeremProject1backend.Models' ad alan─▒nda yok (bir derleme ba┼şvurunuz mu eksik?) [D:\KarneProject\KeremProject1backendson\KeremProject1backend\KeremProject1backend\KeremProject1backend.csproj]
+    0 Uyar─▒
+    1 Hata
+
+Ge├ğen S├╝re 00:00:01.48

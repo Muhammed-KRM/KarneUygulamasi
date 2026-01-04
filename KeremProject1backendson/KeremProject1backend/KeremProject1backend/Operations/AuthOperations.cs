@@ -1,215 +1,194 @@
-﻿using KeremProject1backend.Models.DBs;
-using KeremProject1backend.Models.Requests;
-using KeremProject1backend.Models.Responses;
+﻿using KeremProject1backend.Core.Helpers;
+using KeremProject1backend.Infrastructure;
+using KeremProject1backend.Models.DBs;
+using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Requests;
+using KeremProject1backend.Models.DTOs.Responses;
+using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 
-namespace KeremProject1backend.Operations
+namespace KeremProject1backend.Operations;
+
+public static class AuthOperations
 {
-    public static class AuthOperations
+    public static async Task<BaseResponse<string>> RegisterAsync(
+        RegisterRequest request,
+        ApplicationContext context,
+        AuditService auditService)
     {
-        public static async Task<BaseResponse> Register(RegisterDto dto, ApplicationContext context)
+        // 1. Username/Email uniqueness check
+        if (await context.Users.AnyAsync(u => u.Username == request.Username))
+            return BaseResponse<string>.ErrorResponse("Username already taken");
+
+        if (await context.Users.AnyAsync(u => u.Email == request.Email))
+            return BaseResponse<string>.ErrorResponse("Email already registered");
+
+        // 2. Password hash
+        PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
+
+        // 3. Create User
+        var user = new User
         {
-            BaseResponse response = new();
+            FullName = request.FullName,
+            Username = request.Username,
+            Email = request.Email,
+            PasswordHash = hash,
+            PasswordSalt = salt,
+            GlobalRole = UserRole.User,
+            Status = UserStatus.Active,
+            ProfileVisibility = ProfileVisibility.PublicToAll,
+            CreatedAt = DateTime.UtcNow
+        };
 
-            try
-            {
-                if (await context.AppUsers.AnyAsync(u => u.UserName.ToLower() == dto.Username.ToLower()))
-                {
-                    return response.GenerateError(1001, "Bu kullanıcı adı zaten alınmış.");
-                }
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
 
-                CreatePasswordHash(dto.Password, out byte[] passwordHash, out byte[] passwordSalt);
+        // 4. Audit log
+        await auditService.LogAsync(user.Id, "UserRegistered", $"Username: {user.Username}");
 
-                var user = new AppUser
-                {
-                    UserName = dto.Username.ToLower(),
-                    PasswordHash = passwordHash,
-                    PasswordSalt = passwordSalt,
-                    UserRole = UserRole.User,
-                    State = false,
-                    ModTime = DateTime.Now,
-                    ModUser = 0
-                };
+        return BaseResponse<string>.SuccessResponse("Registration successful. You can now log in.");
+    }
 
-                await context.AppUsers.AddAsync(user);
-                await context.SaveChangesAsync();
+    public static async Task<BaseResponse<LoginResponse>> LoginAsync(
+        LoginRequest request,
+        ApplicationContext context,
+        SessionService sessionService,
+        AuditService auditService)
+    {
+        // 1. Find user
+        var user = await context.Users
+            .Include(u => u.InstitutionMemberships)
+                .ThenInclude(im => im.Institution)
+            .FirstOrDefaultAsync(u => u.Username == request.Username);
 
-                return response.GenerateSuccess("Kullanıcı başarıyla oluşturuldu.");
-            }
-            catch (Exception ex)
-            {
-                return response.GenerateError(9999, $"Beklenmeyen hata: {ex.Message}");
-            }
-        }
+        if (user == null)
+            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password");
 
-        public static async Task<BaseResponse> Login(LoginDto dto, ApplicationContext context)
+        // 2. Verify password
+        if (!PasswordHelper.VerifyHash(request.Password, user.PasswordHash, user.PasswordSalt))
+            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password");
+
+        // 3. Status check
+        if (user.Status == UserStatus.Suspended)
+            return BaseResponse<LoginResponse>.ErrorResponse("Your account has been suspended");
+
+        if (user.Status == UserStatus.Deleted)
+            return BaseResponse<LoginResponse>.ErrorResponse("Account not found");
+
+        // 4. Generate token
+        var token = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
+
+        // 5. Update LastLogin
+        user.LastLoginAt = DateTime.UtcNow;
+        await context.SaveChangesAsync();
+
+        // 6. Audit log
+        await auditService.LogAsync(user.Id, "UserLoggedIn", null);
+
+        // 7. Build response
+        var response = new LoginResponse
         {
-            BaseResponse response = new();
-
-            try
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            User = new UserDto
             {
-                var user = await context.AppUsers.FirstOrDefaultAsync(u => u.UserName.ToLower() == dto.Username.ToLower());
-
-                if (user == null || !VerifyPasswordHash(dto.Password, user.PasswordHash, user.PasswordSalt))
+                Id = user.Id,
+                FullName = user.FullName,
+                Username = user.Username,
+                Email = user.Email,
+                GlobalRole = user.GlobalRole.ToString(),
+                Institutions = user.InstitutionMemberships.Select(im => new InstitutionSummaryDto
                 {
-                    return response.GenerateError(1002, "Kullanıcı adı veya parola hatalı.");
-                }
-
-                // Giriş başarılı, token oluştur
-                var token = TokenServices.GenerateToken(user);
-                var userDto = new UserDto
-                {
-                    Id = user.Id,
-                    Username = user.UserName,
-                    Role = user.UserRole.ToString(),
-                    Token = token
-                };
-
-                response.Response = userDto;
-                response.SetUserID(user.Id);
-                return response.GenerateSuccess("Giriş başarılı.");
+                    Id = im.InstitutionId,
+                    Name = im.Institution.Name,
+                    Role = im.Role.ToString()
+                }).ToList()
             }
-            catch (Exception ex)
-            {
-                return response.GenerateError(9999, $"Beklenmeyen hata: {ex.Message}");
-            }
-        }
+        };
 
-        private static void CreatePasswordHash(string password, out byte[] passwordHash, out byte[] passwordSalt)
+        return BaseResponse<LoginResponse>.SuccessResponse(response);
+    }
+
+    public static async Task<BaseResponse<string>> ApplyInstitutionAsync(
+        ApplyInstitutionRequest request,
+        int userId,
+        ApplicationContext context,
+        AuditService auditService)
+    {
+        // 1. Check if user already has a pending or active institution application?
+        // (Optional rule: One institution per user for now?)
+
+        // 2. Uniqueness check for License Number
+        if (await context.Institutions.AnyAsync(i => i.LicenseNumber == request.LicenseNumber))
+            return BaseResponse<string>.ErrorResponse("License number already registered");
+
+        // 3. Create Institution
+        var institution = new Institution
         {
-            using (var hmac = new HMACSHA512())
-            {
-                passwordSalt = hmac.Key;
-                passwordHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(password));
-            }
-        }
+            Name = request.Name,
+            LicenseNumber = request.LicenseNumber,
+            Address = request.Address,
+            Phone = request.Phone,
+            ManagerUserId = userId,
+            Status = InstitutionStatus.PendingApproval, // Pending admin approval
+            CreatedAt = DateTime.UtcNow
+        };
 
-        private static bool VerifyPasswordHash(string password, byte[] passwordHash, byte[] passwordSalt)
+        context.Institutions.Add(institution);
+        await context.SaveChangesAsync();
+
+        // 4. Create InstitutionUser (Manager role)
+        var membership = new InstitutionUser
         {
-            using (var hmac = new HMACSHA512(passwordSalt))
-            {
-                var computedHash = hmac.ComputeHash(Encoding.UTF8.GetBytes(password));
-                for (int i = 0; i < computedHash.Length; i++)
-                {
-                    if (computedHash[i] != passwordHash[i]) return false;
-                }
-            }
-            return true;
-        }
+            UserId = userId,
+            InstitutionId = institution.Id,
+            Role = InstitutionRole.Manager,
+            JoinedAt = DateTime.UtcNow
+        };
 
-        /// <summary>
-        /// Admin kullanıcı oluştur - Sadece AdminAdmin kullanabilir
-        /// </summary>
-        public static async Task<BaseResponse> CreateAdmin(CreateAdminDto dto, ClaimsPrincipal session, ApplicationContext context)
-        {
-            BaseResponse response = new();
+        context.InstitutionUsers.Add(membership);
+        await context.SaveChangesAsync();
 
-            try
-            {
-                // Sadece AdminAdmin yetkisi kontrolü
-                if (!SessionService.isAuthorized(session, UserRole.AdminAdmin))
-                {
-                    return response.GenerateError(1003, "Bu işlem için AdminAdmin yetkisi gereklidir.");
-                }
+        // 5. Audit log
+        await auditService.LogAsync(userId, "InstitutionApplied", $"Institution: {institution.Name}");
 
-                int currentUserId = SessionService.GetUserId(session);
+        return BaseResponse<string>.SuccessResponse("Application submitted. Waiting for admin approval.");
+    }
 
-                if (await context.AppUsers.AnyAsync(u => u.UserName.ToLower() == dto.Username.ToLower()))
-                {
-                    return response.GenerateError(1001, "Bu kullanıcı adı zaten alınmış.");
-                }
+    public static async Task<BaseResponse<string>> ApproveInstitutionAsync(
+        int institutionId,
+        int adminId,
+        ApplicationContext context,
+        AuditService auditService)
+    {
+        var institution = await context.Institutions.FindAsync(institutionId);
+        if (institution == null)
+            return BaseResponse<string>.ErrorResponse("Institution not found");
 
-                CreatePasswordHash(dto.Password, out byte[] passwordHash, out byte[] passwordSalt);
+        if (institution.Status != InstitutionStatus.PendingApproval)
+            return BaseResponse<string>.ErrorResponse("Institution is not pending approval");
 
-                var user = new AppUser
-                {
-                    UserName = dto.Username.ToLower(),
-                    PasswordHash = passwordHash,
-                    PasswordSalt = passwordSalt,
-                    UserRole = UserRole.Admin,
-                    State = true,
-                    ModTime = DateTime.Now,
-                    ModUser = currentUserId
-                };
+        institution.Status = InstitutionStatus.Active;
+        institution.ApprovedAt = DateTime.UtcNow;
+        institution.ApprovedByAdminId = adminId;
+        institution.SubscriptionStartDate = DateTime.UtcNow;
+        institution.SubscriptionEndDate = DateTime.UtcNow.AddYears(1); // 1 year trial/sub
 
-                await context.AppUsers.AddAsync(user);
-                await context.SaveChangesAsync();
+        await context.SaveChangesAsync();
 
-                response.SetUserID(currentUserId);
-                return response.GenerateSuccess("Admin kullanıcı başarıyla oluşturuldu.");
-            }
-            catch (Exception ex)
-            {
-                return response.GenerateError(9999, $"Beklenmeyen hata: {ex.Message}");
-            }
-        }
+        await auditService.LogAsync(adminId, "InstitutionApproved", $"InstitutionId: {institutionId}");
 
-        /// <summary>
-        /// AdminAdmin kullanıcı oluştur - Hiçbir yetki istemez (sonradan silinecek)
-        /// </summary>
-        public static async Task<BaseResponse> CreateAdminAdmin(CreateAdminAdminDto dto, ApplicationContext context)
-        {
-            BaseResponse response = new();
+        return BaseResponse<string>.SuccessResponse("Institution approved successfully.");
+    }
 
-            try
-            {
-                if (await context.AppUsers.AnyAsync(u => u.UserName.ToLower() == dto.Username.ToLower()))
-                {
-                    return response.GenerateError(1001, "Bu kullanıcı adı zaten alınmış.");
-                }
+    public static async Task<BaseResponse<List<Institution>>> GetPendingInstitutionsAsync(ApplicationContext context)
+    {
+        var pending = await context.Institutions
+            .Where(i => i.Status == InstitutionStatus.PendingApproval)
+            .Include(i => i.Manager)
+            .ToListAsync();
 
-                CreatePasswordHash(dto.Password, out byte[] passwordHash, out byte[] passwordSalt);
-
-                var user = new AppUser
-                {
-                    UserName = dto.Username.ToLower(),
-                    PasswordHash = passwordHash,
-                    PasswordSalt = passwordSalt,
-                    UserRole = UserRole.AdminAdmin,
-                    State = true,
-                    ModTime = DateTime.Now,
-                    ModUser = 0 // İlk AdminAdmin, ModUser yok
-                };
-
-                await context.AppUsers.AddAsync(user);
-                await context.SaveChangesAsync();
-
-                return response.GenerateSuccess("AdminAdmin kullanıcı başarıyla oluşturuldu.");
-            }
-            catch (Exception ex)
-            {
-                return response.GenerateError(9999, $"Beklenmeyen hata: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// Logout işlemi - Token'ı geçersiz kılmak için (şu an sadece başarı mesajı döner)
-        /// Gelecekte token blacklist mekanizması eklenebilir
-        /// </summary>
-        public static Task<BaseResponse> Logout(ClaimsPrincipal session, ApplicationContext context)
-        {
-            BaseResponse response = new();
-
-            try
-            {
-                int userId = SessionService.GetUserId(session);
-
-                // Şu an sadece başarı mesajı döner
-                // Gelecekte token blacklist mekanizması eklenebilir:
-                // - Token'ı veritabanında veya cache'de blacklist'e ekle
-                // - Her token doğrulamasında blacklist kontrolü yap
-
-                response.SetUserID(userId);
-                return Task.FromResult(response.GenerateSuccess("Başarıyla çıkış yapıldı."));
-            }
-            catch (Exception ex)
-            {
-                return Task.FromResult(response.GenerateError(9999, $"Beklenmeyen hata: {ex.Message}"));
-            }
-        }
+        return BaseResponse<List<Institution>>.SuccessResponse(pending);
     }
 }

@@ -1,110 +1,135 @@
-using KeremProject1backend.Services;
-using Microsoft.AspNetCore.Http;
-using FluentValidation.AspNetCore;
 using FluentValidation;
+using FluentValidation.AspNetCore;
 using Hangfire;
-using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.RateLimiting;
-// using Swashbuckle.AspNetCore.SwaggerGen;
+using KeremProject1backend.Infrastructure;
+using KeremProject1backend.Services;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Servisleri ekle
-builder.Services.AddAppServices(builder.Configuration);
+// 1. Database Context
+builder.Services.AddDbContext<ApplicationContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// HttpClient Fabrikası
-builder.Services.AddHttpClient();
-
-// Controller ve Swagger
-// Controller ve Swagger
-builder.Services.AddControllers();
-
-// FluentValidation
-builder.Services.AddFluentValidationAutoValidation();
-builder.Services.AddFluentValidationClientsideAdapters();
-
-// Register Validators
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
-
-builder.Services.AddEndpointsApiExplorer();
-
-// SignalR
-builder.Services.AddSignalR();
-
-// File Service
-builder.Services.AddScoped<KeremProject1backend.Core.Interfaces.IFileService, KeremProject1backend.Infrastructure.Services.LocalFileService>();
-
-// 1. Rate Limiting
-builder.Services.AddRateLimiter(options =>
-{
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetFixedWindowLimiter(
-            partitionKey: context.User.Identity?.Name ?? context.Request.Headers.Host.ToString(),
-            factory: partition => new FixedWindowRateLimiterOptions
-            {
-                AutoReplenishment = true,
-                PermitLimit = 100,
-                QueueLimit = 2,
-                Window = TimeSpan.FromMinutes(1)
-            }));
-});
-
-// 2. Caching (Redis)
+// 2. Redis Cache
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6379";
+    options.Configuration = builder.Configuration.GetConnectionString("Redis");
     options.InstanceName = "KarneProject_";
 });
-builder.Services.AddScoped<KeremProject1backend.Core.Interfaces.ICacheService, KeremProject1backend.Infrastructure.Services.RedisCacheService>();
 
-// 3. Background Jobs (Hangfire)
-builder.Services.AddHangfire(configuration => configuration
-    .SetDataCompatibilityLevel(Hangfire.CompatibilityLevel.Version_180)
+// 3. Core Services
+builder.Services.AddScoped<SessionService>();
+builder.Services.AddScoped<AuditService>();
+builder.Services.AddScoped<CacheService>();
+
+// 4. Authentication (JWT)
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = "Bearer";
+    options.DefaultChallengeScheme = "Bearer";
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = builder.Configuration["JWT:Issuer"],
+        ValidAudience = builder.Configuration["JWT:Audience"],
+        IssuerSigningKey = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(builder.Configuration["JWT:Secret"]!))
+    };
+});
+
+// 5. Background Jobs (Hangfire)
+builder.Services.AddHangfire(config => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
     .UseSimpleAssemblyNameTypeSerializer()
     .UseRecommendedSerializerSettings()
     .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddHangfireServer();
-// builder.Services.AddSwaggerGen(c =>
-// {
-//     // Döngüsel referansları önlemek için
-//     c.UseAllOfToExtendReferenceSchemas();
-//     c.UseOneOfForPolymorphism();
-//     c.UseAllOfForInheritance();
-// 
-//     // Hata yönetimi - benzersiz schema ID'leri
-//     c.CustomSchemaIds(type => type.FullName?.Replace("+", ".") ?? type.Name);
-// 
-//     // IgnoreObsoleteActions - kullanılmayan action'ları yok say
-//     c.IgnoreObsoleteActions();
-// 
-//     // IgnoreObsoleteProperties - kullanılmayan property'leri yok say
-//     c.IgnoreObsoleteProperties();
-// });
+
+// 6. Controllers & Swagger
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "KarneProject API", Version = "v1" });
+
+    // JWT Support in Swagger
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "JWT Authorization header using the Bearer scheme. Example: \"Authorization: Bearer {token}\"",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer"
+    });
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[] {}
+        }
+    });
+});
+
+// 7. Validation
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+// 8. CORS
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowAll",
+        builder => builder
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader());
+});
+
+// 9. SignalR
+builder.Services.AddSignalR();
+
 
 var app = builder.Build();
 
-// HTTP request pipeline
-// if (app.Environment.IsDevelopment())
-// {
-//     app.UseSwagger();
-//     app.UseSwaggerUI();
-// }
+// Configure Pipeline
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 app.UseHttpsRedirection();
 
-// CORS politikasını kullan
-app.UseCors("AllowAngularApp");
+app.UseCors("AllowAll");
 
-// Middleware Kaydı
-app.UseRateLimiter(); // Rate Limiting Middleware
-app.UseMiddleware<KeremProject1backend.Middlewares.RequestLoggingMiddleware>();
-app.UseMiddleware<KeremProject1backend.Middlewares.GlobalExceptionMiddleware>();
+app.UseAuthentication();
+app.UseAuthorization();
 
-app.UseHangfireDashboard(); // Hangfire Dashboard
+app.UseHangfireDashboard();
 
 app.MapControllers();
-app.MapHub<KeremProject1backend.Hubs.NotificationHub>("/notificationHub");
-app.MapHub<KeremProject1backend.Hubs.ChatHub>("/chatHub");
+
+// Seed Data
+await KeremProject1backend.Infrastructure.Data.DataSeeder.SeedAsync(app);
 
 app.Run();
