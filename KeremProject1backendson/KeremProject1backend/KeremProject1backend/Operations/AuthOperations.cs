@@ -6,6 +6,7 @@ using KeremProject1backend.Models.DTOs.Requests;
 using KeremProject1backend.Models.DTOs.Responses;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
+using KeremProject1backend.Core.Constants; // Added this
 using Microsoft.EntityFrameworkCore;
 
 namespace KeremProject1backend.Operations;
@@ -19,10 +20,10 @@ public static class AuthOperations
     {
         // 1. Username/Email uniqueness check
         if (await context.Users.AnyAsync(u => u.Username == request.Username))
-            return BaseResponse<string>.ErrorResponse("Username already taken");
+            return BaseResponse<string>.ErrorResponse("Username already taken", ErrorCodes.AuthUsernameTaken);
 
         if (await context.Users.AnyAsync(u => u.Email == request.Email))
-            return BaseResponse<string>.ErrorResponse("Email already registered");
+            return BaseResponse<string>.ErrorResponse("Email already registered", ErrorCodes.AuthEmailTaken);
 
         // 2. Password hash
         PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
@@ -63,18 +64,18 @@ public static class AuthOperations
             .FirstOrDefaultAsync(u => u.Username == request.Username);
 
         if (user == null)
-            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password");
+            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password", ErrorCodes.AuthInvalidCredentials);
 
         // 2. Verify password
         if (!PasswordHelper.VerifyHash(request.Password, user.PasswordHash, user.PasswordSalt))
-            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password");
+            return BaseResponse<LoginResponse>.ErrorResponse("Invalid username or password", ErrorCodes.AuthInvalidCredentials);
 
         // 3. Status check
         if (user.Status == UserStatus.Suspended)
-            return BaseResponse<LoginResponse>.ErrorResponse("Your account has been suspended");
+            return BaseResponse<LoginResponse>.ErrorResponse("Your account has been suspended", ErrorCodes.AuthUserSuspended);
 
         if (user.Status == UserStatus.Deleted)
-            return BaseResponse<LoginResponse>.ErrorResponse("Account not found");
+            return BaseResponse<LoginResponse>.ErrorResponse("Account not found", ErrorCodes.AuthUserDeleted);
 
         // 4. Generate token
         var token = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
@@ -121,7 +122,7 @@ public static class AuthOperations
 
         // 2. Uniqueness check for License Number
         if (await context.Institutions.AnyAsync(i => i.LicenseNumber == request.LicenseNumber))
-            return BaseResponse<string>.ErrorResponse("License number already registered");
+            return BaseResponse<string>.ErrorResponse("License number already registered", ErrorCodes.AuthLicenseNumberTaken);
 
         // 3. Create Institution
         var institution = new Institution
@@ -164,10 +165,10 @@ public static class AuthOperations
     {
         var institution = await context.Institutions.FindAsync(institutionId);
         if (institution == null)
-            return BaseResponse<string>.ErrorResponse("Institution not found");
+            return BaseResponse<string>.ErrorResponse("Institution not found", ErrorCodes.AdminInstitutionNotFound);
 
         if (institution.Status != InstitutionStatus.PendingApproval)
-            return BaseResponse<string>.ErrorResponse("Institution is not pending approval");
+            return BaseResponse<string>.ErrorResponse("Institution is not pending approval", ErrorCodes.AdminInstitutionNotPending);
 
         institution.Status = InstitutionStatus.Active;
         institution.ApprovedAt = DateTime.UtcNow;

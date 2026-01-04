@@ -46,6 +46,33 @@ builder.Services.AddAuthentication(options =>
         IssuerSigningKey = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(builder.Configuration["JWT:Secret"]!))
     };
+
+    options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+    {
+        OnChallenge = context =>
+        {
+            context.HandleResponse();
+            context.Response.StatusCode = 401;
+            context.Response.ContentType = "application/json";
+
+            var response = KeremProject1backend.Models.DTOs.BaseResponse<string>.ErrorResponse(
+                "Unauthorized: Session invalid or missing",
+                KeremProject1backend.Core.Constants.ErrorCodes.Unauthorized);
+
+            return context.Response.WriteAsJsonAsync(response);
+        },
+        OnForbidden = context =>
+        {
+            context.Response.StatusCode = 403;
+            context.Response.ContentType = "application/json";
+
+            var response = KeremProject1backend.Models.DTOs.BaseResponse<string>.ErrorResponse(
+                "Forbidden: Insufficient permissions",
+                KeremProject1backend.Core.Constants.ErrorCodes.AccessDenied);
+
+            return context.Response.WriteAsJsonAsync(response);
+        }
+    };
 });
 
 // 5. Background Jobs (Hangfire)

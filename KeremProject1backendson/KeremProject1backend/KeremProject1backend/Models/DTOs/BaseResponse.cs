@@ -5,6 +5,7 @@ public class BaseResponse<T>
     public bool Success { get; set; }
     public T? Data { get; set; }
     public string? Error { get; set; }
+    public string? ErrorCode { get; set; }
 
     public static BaseResponse<T> SuccessResponse(T data)
     {
@@ -12,17 +13,19 @@ public class BaseResponse<T>
         {
             Success = true,
             Data = data,
-            Error = null
+            Error = null,
+            ErrorCode = null
         };
     }
 
-    public static BaseResponse<T> ErrorResponse(string error)
+    public static BaseResponse<T> ErrorResponse(string error, string errorCode)
     {
         return new BaseResponse<T>
         {
             Success = false,
             Data = default,
-            Error = error
+            Error = error,
+            ErrorCode = errorCode
         };
     }
 }

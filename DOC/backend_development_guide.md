@@ -322,6 +322,36 @@ public class OpticalUploadRequestValidator : AbstractValidator<OpticalUploadRequ
 }
 ```
 
+### 2.3. Yanıt Formatı ve Hata Kodları (6 Haneli Sistem)
+
+Platformdaki tüm API yanıtları `BaseResponse<T>` tipindedir. Hataların istemci tarafında (Frontend/Mobil) daha spesifik olarak ele alınabilmesi için **6 haneli sayısal hata kodları** kullanılır.
+
+#### [Model] BaseResponse<T>
+
+```csharp
+public class BaseResponse<T>
+{
+    public bool Success { get; set; }
+    public T? Data { get; set; }
+    public string? Error { get; set; }
+    public string? ErrorCode { get; set; } // 6 Haneli Hata Kodu (Success=true ise null)
+}
+```
+
+#### Hata Kodu Standartları
+
+| Kod Aralığı | Kategori            | Açıklama                                                           |
+| ----------- | ------------------- | ------------------------------------------------------------------ |
+| **100XXX**  | **Sistem / Global** | Yetki, Kaynak Bulunamadı, Sunucu Hatası vb. genel sistem hataları. |
+| **001XXX**  | **Auth / User**     | Kayıt, Giriş, Profil ve Bireysel kullanıcı işlemleri hataları.     |
+| **002XXX**  | **Admin**           | Sistem yönetimi ve Kurum onay/red süreçleri hataları.              |
+| **003XXX**  | **Institution**     | Kurum içi (Sınıf, Mevcut Öğrenci, Öğretmen) yönetim hataları.      |
+
+#### Önemli Sabitler (Global)
+
+- `100000`: **Yetkisiz İşlem (No Session)** - Frontend bu kodu alınca doğrudan Login sayfasına yönlendirmelidir.
+- `100403`: **Erişim Engellendi** - Kullanıcının bu işlemi yapmaya yetkisi (rolü) yok.
+
 ---
 
 ## 🔧 3. FAZ 1: FOUNDATION (Temel Altyapı)
@@ -559,7 +589,8 @@ public static async Task<BaseResponse<string>> RegisterAsync(RegisterRequest req
 {
   "success": true,
   "data": "Kayıt başarılı",
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -660,7 +691,9 @@ public static async Task<BaseResponse<LoginResponse>> LoginAsync(LoginRequest re
         { "id": 2, "name": "XYZ Dershanesi", "role": "Student" }
       ]
     }
-  }
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -745,7 +778,8 @@ public static async Task<BaseResponse<int>> ApplyInstitutionAsync(
 {
   "success": true,
   "data": 15, // Institution ID
-  "error": null
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -1933,7 +1967,9 @@ public static async Task<BaseResponse<int>> ConfirmResultsAsync(
       "netValues": [28.75, 12.5, 18.0, 15.25],
       "maxValues": [40, 14, 20, 16]
     }
-  }
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -2652,10 +2688,15 @@ Kullanıcının haftalık programı.
 
 ```json
 {
-  "Monday": [
-    { "time": "09:00-10:00", "lesson": "Matematik", "location": "A-101" }
-  ],
-  "Tuesday": [...]
+  "success": true,
+  "data": {
+    "Monday": [
+      { "time": "09:00-10:00", "lesson": "Matematik", "location": "A-101" }
+    ],
+    "Tuesday": []
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
@@ -2699,12 +2740,17 @@ Haftalık çalışma istatistikleri.
 
 ```json
 {
-  "totalHours": 12.5,
-  "topLesson": { "name": "Matematik", "hours": 6 },
-  "dailyBreakdown": [
-    { "day": "Monday", "hours": 2 },
-    { "day": "Tuesday", "hours": 0 }
-  ]
+  "success": true,
+  "data": {
+    "totalHours": 12.5,
+    "topLesson": { "name": "Matematik", "hours": 6 },
+    "dailyBreakdown": [
+      { "day": "Monday", "hours": 2 },
+      { "day": "Tuesday", "hours": 0 }
+    ]
+  },
+  "error": null,
+  "errorCode": null
 }
 ```
 
