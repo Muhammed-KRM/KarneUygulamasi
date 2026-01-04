@@ -3,13 +3,15 @@ using FluentValidation.AspNetCore;
 using Hangfire;
 using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Services;
-
+using KeremProject1backend.Operations;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddHttpContextAccessor();
 
 // 1. Database Context
 builder.Services.AddDbContext<ApplicationContext>(options =>
@@ -26,6 +28,13 @@ builder.Services.AddStackExchangeRedisCache(options =>
 builder.Services.AddScoped<SessionService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<CacheService>();
+builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<OpticalParserService>();
+builder.Services.AddScoped<InstitutionOperations>();
+builder.Services.AddScoped<ClassroomOperations>();
+builder.Services.AddScoped<ExamOperations>();
+builder.Services.AddScoped<MessageOperations>();
+builder.Services.AddScoped<NotificationService>();
 
 // 4. Authentication (JWT)
 builder.Services.AddAuthentication(options =>
@@ -155,6 +164,10 @@ app.UseAuthorization();
 app.UseHangfireDashboard();
 
 app.MapControllers();
+
+// SignalR Hubs
+app.MapHub<KeremProject1backend.Hubs.ChatHub>("/hubs/chat");
+app.MapHub<KeremProject1backend.Hubs.NotificationHub>("/hubs/notification");
 
 // Seed Data
 await KeremProject1backend.Infrastructure.Data.DataSeeder.SeedAsync(app);

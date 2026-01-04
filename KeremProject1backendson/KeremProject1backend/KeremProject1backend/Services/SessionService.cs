@@ -1,4 +1,5 @@
 using KeremProject1backend.Models.DBs;
+using KeremProject1backend.Models.Enums;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
@@ -9,10 +10,12 @@ namespace KeremProject1backend.Services;
 public class SessionService
 {
     private readonly IConfiguration _configuration;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public SessionService(IConfiguration configuration)
+    public SessionService(IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
     {
         _configuration = configuration;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public string GenerateToken(User user, List<InstitutionUser> memberships)
@@ -46,6 +49,26 @@ public class SessionService
         );
 
         return new JwtSecurityTokenHandler().WriteToken(token);
+    }
+
+    public int GetUserId()
+    {
+        var user = _httpContextAccessor.HttpContext?.User;
+        if (user == null) throw new UnauthorizedAccessException("HttpContext not found");
+
+        var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
+        if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
+        {
+            throw new UnauthorizedAccessException("User ID not found in token");
+        }
+        return userId;
+    }
+
+    public bool IsInGlobalRole(UserRole role)
+    {
+        var user = _httpContextAccessor.HttpContext?.User;
+        var roleClaim = user?.FindFirst("role")?.Value;
+        return roleClaim == role.ToString();
     }
 
     public int GetCurrentUserId(ClaimsPrincipal user)

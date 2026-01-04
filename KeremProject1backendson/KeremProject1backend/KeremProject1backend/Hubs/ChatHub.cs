@@ -1,22 +1,19 @@
 using Microsoft.AspNetCore.SignalR;
+using KeremProject1backend.Models.DBs;
 
-namespace KeremProject1backend.Hubs
+namespace KeremProject1backend.Hubs;
+
+public class ChatHub : Hub
 {
-    public class ChatHub : Hub
+    // Real-time group messaging for classrooms or private chats
+
+    public async Task JoinConversation(int conversationId)
     {
-        public async Task SendMessage(string user, string message)
-        {
-            await Clients.All.SendAsync("ReceiveMessage", user, message);
-        }
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"Conv_{conversationId}");
+    }
 
-        public async Task JoinGroup(string groupName)
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
-        }
-
-        public async Task SendToGroup(string groupName, string user, string message)
-        {
-            await Clients.Group(groupName).SendAsync("ReceiveGroupMessage", user, message);
-        }
+    public async Task LeaveConversation(int conversationId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Conv_{conversationId}");
     }
 }

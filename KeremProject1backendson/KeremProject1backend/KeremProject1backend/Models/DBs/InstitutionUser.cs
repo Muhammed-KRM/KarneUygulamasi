@@ -19,5 +19,7 @@ public class InstitutionUser
     // Öğretmen için
     public string? EmployeeNumber { get; set; }
 
+    public bool IsActive { get; set; } = true;
+
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 }

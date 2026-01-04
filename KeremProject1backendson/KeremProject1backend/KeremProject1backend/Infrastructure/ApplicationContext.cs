@@ -16,6 +16,18 @@ public class ApplicationContext : DbContext
     public DbSet<AccountLink> AccountLinks { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
 
+    // DbSets for Phase 2
+    public DbSet<Classroom> Classrooms { get; set; }
+    public DbSet<ClassroomStudent> ClassroomStudents { get; set; }
+    public DbSet<Exam> Exams { get; set; }
+    public DbSet<ExamResult> ExamResults { get; set; }
+    public DbSet<Lesson> Lessons { get; set; }
+    public DbSet<Topic> Topics { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Conversation> Conversations { get; set; }
+    public DbSet<ConversationMember> ConversationMembers { get; set; }
+    public DbSet<Message> Messages { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -110,6 +122,135 @@ public class ApplicationContext : DbContext
             entity.Property(e => e.Details).HasMaxLength(2000);
             entity.Property(e => e.IpAddress).HasMaxLength(45);
             entity.Property(e => e.UserAgent).HasMaxLength(500);
+        });
+
+        // Phase 2: Academic & Messaging Configurations
+
+        modelBuilder.Entity<Classroom>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+            entity.HasOne(e => e.Institution)
+                .WithMany()
+                .HasForeignKey(e => e.InstitutionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.HeadTeacher)
+                .WithMany()
+                .HasForeignKey(e => e.HeadTeacherId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ClassConversation)
+                .WithOne(e => e.Classroom)
+                .HasForeignKey<Conversation>(e => e.ClassroomId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ClassroomStudent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ClassroomId, e.StudentId }).IsUnique();
+            entity.HasOne(e => e.Classroom)
+                .WithMany(c => c.Students)
+                .HasForeignKey(e => e.ClassroomId)
+                .OnDelete(DeleteBehavior.NoAction); // Changed from Cascade to avoid multiple paths from Institution
+            entity.HasOne(e => e.Student)
+                .WithMany()
+                .HasForeignKey(e => e.StudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<Exam>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.Type).HasConversion<byte>();
+            entity.HasOne(e => e.Institution)
+                .WithMany()
+                .HasForeignKey(e => e.InstitutionId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Classroom)
+                .WithMany(c => c.Exams)
+                .HasForeignKey(e => e.ClassroomId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<ExamResult>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ExamId, e.StudentId }).IsUnique();
+            entity.HasIndex(e => e.StudentNumber);
+            entity.HasOne(e => e.Exam)
+                .WithMany(e => e.Results)
+                .HasForeignKey(e => e.ExamId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.Student)
+                .WithMany()
+                .HasForeignKey(e => e.StudentId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<Lesson>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+        });
+
+        modelBuilder.Entity<Topic>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            entity.HasOne(e => e.Lesson)
+                .WithMany(l => l.Topics)
+                .HasForeignKey(e => e.LessonId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Type).HasConversion<byte>();
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Conversation>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Title).HasMaxLength(200);
+            entity.HasOne(e => e.Institution)
+                .WithMany()
+                .HasForeignKey(e => e.InstitutionId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<ConversationMember>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ConversationId, e.UserId }).IsUnique();
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Members)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        modelBuilder.Entity<Message>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Type).HasConversion<byte>();
+            entity.HasOne(e => e.Conversation)
+                .WithMany(c => c.Messages)
+                .HasForeignKey(e => e.ConversationId)
+                .OnDelete(DeleteBehavior.NoAction);
+            entity.HasOne(e => e.Sender)
+                .WithMany()
+                .HasForeignKey(e => e.SenderId)
+                .OnDelete(DeleteBehavior.NoAction);
         });
     }
 }

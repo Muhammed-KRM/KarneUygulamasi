@@ -5,7 +5,7 @@ public static class ErrorCodes
     // System & Global Errors (100XXX)
     public const string Unauthorized = "100000"; // No session / Token invalid
     public const string AccessDenied = "100403"; // Forbidden / Role mismatch
-    public const string InternalError = "100500";
+    public const string GenericError = "100500";
     public const string ValidationFailed = "100400";
 
     // Feature 001: Auth & User Operations
