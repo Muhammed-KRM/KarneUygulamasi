@@ -38,6 +38,7 @@ if (!string.IsNullOrEmpty(redisConnectionString))
 
 // 3. Core Services
 builder.Services.AddScoped<SessionService>();
+builder.Services.AddScoped<AuthorizationService>();
 builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<CacheService>();
 builder.Services.AddScoped<NotificationService>();
@@ -49,6 +50,7 @@ builder.Services.AddScoped<MessageOperations>();
 builder.Services.AddScoped<AccountOperations>();
 builder.Services.AddScoped<UserOperations>();
 builder.Services.AddScoped<AdminOperations>();
+builder.Services.AddScoped<SocialOperations>();
 
 // Background Jobs
 builder.Services.AddScoped<KeremProject1backend.Jobs.CalculateRankingsJob>();

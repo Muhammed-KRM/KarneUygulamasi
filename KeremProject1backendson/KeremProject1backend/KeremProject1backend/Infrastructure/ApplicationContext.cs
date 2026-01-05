@@ -34,6 +34,21 @@ public class ApplicationContext : DbContext
     public DbSet<ConversationMember> ConversationMembers { get; set; }
     public DbSet<Message> Messages { get; set; }
 
+    // DbSets for Phase 3 (Social Network & Discovery)
+    public DbSet<Content> Contents { get; set; }
+    public DbSet<Comment> Comments { get; set; }
+    public DbSet<Interaction> Interactions { get; set; }
+    public DbSet<Follow> Follows { get; set; }
+    public DbSet<Block> Blocks { get; set; }
+    public DbSet<Mute> Mutes { get; set; }
+    public DbSet<Story> Stories { get; set; }
+    public DbSet<StoryView> StoryViews { get; set; }
+    public DbSet<StoryReaction> StoryReactions { get; set; }
+    public DbSet<ContentReport> ContentReports { get; set; }
+    public DbSet<Poll> Polls { get; set; }
+    public DbSet<PollVote> PollVotes { get; set; }
+    public DbSet<ContentDraft> ContentDrafts { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -319,6 +334,297 @@ public class ApplicationContext : DbContext
                 .WithOne()
                 .HasForeignKey<UserPreferences>(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Phase 3: Social Network & Discovery Configurations
+
+        modelBuilder.Entity<Content>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.AuthorId);
+            entity.HasIndex(e => e.LessonId);
+            entity.HasIndex(e => e.TopicId);
+            entity.HasIndex(e => e.CreatedAt);
+            entity.HasIndex(e => new { e.IsDeleted, e.CreatedAt });
+
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(5000);
+            entity.Property(e => e.ImageUrl).HasMaxLength(1000);
+            entity.Property(e => e.VideoUrl).HasMaxLength(1000);
+            entity.Property(e => e.FileUrl).HasMaxLength(1000);
+            entity.Property(e => e.TagsJson).HasMaxLength(2000);
+
+            entity.Property(e => e.ContentType).HasConversion<byte>();
+            entity.Property(e => e.Difficulty).HasConversion<byte>();
+
+            entity.HasOne(e => e.Author)
+                .WithMany()
+                .HasForeignKey(e => e.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Lesson)
+                .WithMany()
+                .HasForeignKey(e => e.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Topic)
+                .WithMany()
+                .HasForeignKey(e => e.TopicId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.SolvedByUser)
+                .WithMany()
+                .HasForeignKey(e => e.SolvedByUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Comment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ContentId);
+            entity.HasIndex(e => e.AuthorId);
+            entity.HasIndex(e => e.ParentCommentId);
+            entity.HasIndex(e => new { e.IsDeleted, e.CreatedAt });
+
+            entity.Property(e => e.Text).HasMaxLength(2000).IsRequired();
+
+            entity.HasOne(e => e.Content)
+                .WithMany(c => c.Comments)
+                .HasForeignKey(e => e.ContentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Author)
+                .WithMany()
+                .HasForeignKey(e => e.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.ParentComment)
+                .WithMany(c => c.Replies)
+                .HasForeignKey(e => e.ParentCommentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Interaction>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.ContentId, e.Type }).IsUnique();
+            entity.HasIndex(e => e.ContentId);
+            entity.HasIndex(e => e.UserId);
+
+            entity.Property(e => e.Type).HasConversion<byte>();
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Content)
+                .WithMany(c => c.Interactions)
+                .HasForeignKey(e => e.ContentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Follow>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.FollowerId, e.FollowingId }).IsUnique();
+            entity.HasIndex(e => e.FollowerId);
+            entity.HasIndex(e => e.FollowingId);
+
+            entity.HasOne(e => e.Follower)
+                .WithMany()
+                .HasForeignKey(e => e.FollowerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Following)
+                .WithMany()
+                .HasForeignKey(e => e.FollowingId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Block>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.BlockerId, e.BlockedId }).IsUnique();
+            entity.HasIndex(e => e.BlockerId);
+            entity.HasIndex(e => e.BlockedId);
+
+            entity.HasOne(e => e.Blocker)
+                .WithMany()
+                .HasForeignKey(e => e.BlockerId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Blocked)
+                .WithMany()
+                .HasForeignKey(e => e.BlockedId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Mute>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.MutedUserId }).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.MutedUserId);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.MutedUser)
+                .WithMany()
+                .HasForeignKey(e => e.MutedUserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Story>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.AuthorId);
+            entity.HasIndex(e => new { e.IsDeleted, e.ExpiresAt });
+            entity.HasIndex(e => e.ExpiresAt);
+
+            entity.Property(e => e.ImageUrl).HasMaxLength(1000);
+            entity.Property(e => e.VideoUrl).HasMaxLength(1000);
+            entity.Property(e => e.Text).HasMaxLength(200);
+
+            entity.HasOne(e => e.Author)
+                .WithMany()
+                .HasForeignKey(e => e.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StoryView>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.StoryId, e.UserId }).IsUnique();
+            entity.HasIndex(e => e.StoryId);
+            entity.HasIndex(e => e.UserId);
+
+            entity.HasOne(e => e.Story)
+                .WithMany(s => s.Views)
+                .HasForeignKey(e => e.StoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<StoryReaction>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.StoryId, e.UserId }).IsUnique();
+            entity.HasIndex(e => e.StoryId);
+            entity.HasIndex(e => e.UserId);
+
+            entity.Property(e => e.Reaction).HasMaxLength(10).IsRequired();
+
+            entity.HasOne(e => e.Story)
+                .WithMany(s => s.Reactions)
+                .HasForeignKey(e => e.StoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ContentReport>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.ContentId, e.UserId }).IsUnique();
+            entity.HasIndex(e => e.ContentId);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.Status);
+
+            entity.Property(e => e.Reason).HasMaxLength(50).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(1000);
+            entity.Property(e => e.ReviewNotes).HasMaxLength(2000);
+
+            entity.Property(e => e.Status).HasConversion<byte>();
+
+            entity.HasOne(e => e.Content)
+                .WithMany()
+                .HasForeignKey(e => e.ContentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Reviewer)
+                .WithMany()
+                .HasForeignKey(e => e.ReviewedBy)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Poll>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.ContentId);
+            entity.HasIndex(e => e.ExpiresAt);
+
+            entity.Property(e => e.Question).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.OptionsJson).IsRequired();
+
+            entity.HasOne(e => e.Content)
+                .WithMany()
+                .HasForeignKey(e => e.ContentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PollVote>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.PollId, e.UserId, e.OptionIndex }).IsUnique(); // Aynı kullanıcı aynı seçeneği birden fazla kez seçemez
+            entity.HasIndex(e => e.PollId);
+            entity.HasIndex(e => e.UserId);
+
+            entity.HasOne(e => e.Poll)
+                .WithMany(p => p.Votes)
+                .HasForeignKey(e => e.PollId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<ContentDraft>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.AuthorId);
+            entity.HasIndex(e => e.LastSavedAt);
+
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(5000);
+            entity.Property(e => e.ImageUrl).HasMaxLength(1000);
+            entity.Property(e => e.VideoUrl).HasMaxLength(1000);
+            entity.Property(e => e.FileUrl).HasMaxLength(1000);
+
+            entity.Property(e => e.ContentType).HasConversion<byte>();
+            entity.Property(e => e.Difficulty).HasConversion<byte>();
+
+            entity.HasOne(e => e.Author)
+                .WithMany()
+                .HasForeignKey(e => e.AuthorId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Lesson)
+                .WithMany()
+                .HasForeignKey(e => e.LessonId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Topic)
+                .WithMany()
+                .HasForeignKey(e => e.TopicId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

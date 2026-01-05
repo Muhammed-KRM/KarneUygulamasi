@@ -7,6 +7,7 @@ public static class ErrorCodes
     public const string AccessDenied = "100403"; // Forbidden / Role mismatch
     public const string GenericError = "100500";
     public const string ValidationFailed = "100400";
+    public const string NotFound = "100404"; // Resource not found
 
     // Feature 001: Auth & User Operations
     public const string AuthUsernameTaken = "001001";

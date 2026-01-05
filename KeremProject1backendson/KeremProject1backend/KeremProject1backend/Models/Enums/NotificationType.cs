@@ -6,5 +6,10 @@ public enum NotificationType : byte
     ExamResult = 2,
     NewMessage = 3,
     InstitutionApproval = 4,
-    MemberJoined = 5
+    MemberJoined = 5,
+    Follow = 6,
+    Like = 7,
+    Comment = 8,
+    Share = 9,
+    Story = 10
 }

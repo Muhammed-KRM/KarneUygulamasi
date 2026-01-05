@@ -5234,6 +5234,4031 @@ public static async Task<List<Content>> SearchContentsAsync(
 
 ---
 
+### 5.4. Content Management (İçerik Yönetimi)
+
+#### [GET] `/api/social/content/{id}`
+
+İçerik detayını getir.
+
+**Query Parameters:**
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Teknoloji Kullanımı:**
+- **CacheService**: İçerik detayı cache'lenir (15 dakika)
+- **AsNoTracking()**: Read-only query için performans optimizasyonu
+- **Include()**: Author, Lesson, Topic, Comments eager loading
+
+**Operation Logic (SocialOperations.cs):**
+
+```csharp
+public async Task<BaseResponse<ContentDetailDto>> GetContentByIdAsync(int contentId, bool forceRefresh = false)
+{
+    // 1. Cache kontrolü
+    var cacheKey = $"Content:{contentId}:Detail";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<ContentDetailDto>(cacheKey);
+        if (cached != null)
+            return BaseResponse<ContentDetailDto>.SuccessResponse(cached);
+    }
+
+    // 2. DB'den çek (AsNoTracking ile performans)
+    var content = await _context.Contents
+        .AsNoTracking()
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .Include(c => c.Comments.OrderByDescending(com => com.CreatedAt).Take(10))
+            .ThenInclude(com => com.User)
+        .FirstOrDefaultAsync(c => c.Id == contentId);
+
+    if (content == null)
+        return BaseResponse<ContentDetailDto>.ErrorResponse("Content not found", ErrorCodes.NotFound);
+
+    // 3. View count artır (background job ile)
+    BackgroundJob.Enqueue(() => IncrementContentViewCountAsync(contentId));
+
+    // 4. DTO mapping
+    var dto = MapToContentDetailDto(content);
+
+    // 5. Cache'e yaz
+    await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(15));
+
+    return BaseResponse<ContentDetailDto>.SuccessResponse(dto);
+}
+```
+
+**Cache Stratejisi:**
+- Cache Key: `Content:{contentId}:Detail`
+- Cache Süresi: 15 dakika
+- Invalidation: Content güncellendiğinde veya silindiğinde
+
+---
+
+#### [PUT] `/api/social/content/{id}`
+
+İçerik düzenleme (sadece sahibi).
+
+**Request:**
+
+```json
+{
+  "title": "Güncellenmiş Başlık",
+  "description": "Güncellenmiş açıklama",
+  "imageUrl": "https://cdn.../new-image.jpg",
+  "tags": ["#güncel", "#tyt"]
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UpdateContentAsync(int contentId, UpdateContentRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    // 1. İçerik sahibi kontrolü
+    var content = await _context.Contents
+        .FirstOrDefaultAsync(c => c.Id == contentId && c.AuthorId == userId);
+
+    if (content == null)
+        return BaseResponse<bool>.ErrorResponse("Content not found or unauthorized", ErrorCodes.NotFound);
+
+    // 2. Güncelleme
+    if (!string.IsNullOrEmpty(request.Title))
+        content.Title = request.Title;
+    if (!string.IsNullOrEmpty(request.Description))
+        content.Description = request.Description;
+    if (request.ImageUrl != null)
+        content.ImageUrl = request.ImageUrl;
+    if (request.Tags != null)
+        content.TagsJson = JsonSerializer.Serialize(request.Tags);
+
+    await _context.SaveChangesAsync();
+
+    // 3. Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Content:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+    await _cacheService.RemoveByPatternAsync("Discover:*");
+
+    // 4. RediSearch index güncelle (background job)
+    BackgroundJob.Enqueue(() => RedisSearchHelper.UpdateContentIndexAsync(contentId));
+
+    // 5. Audit log
+    await _auditService.LogAsync(userId, "ContentUpdated", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Teknoloji Kullanımı:**
+- **CacheService**: Pattern-based invalidation (Feed, Discover, User content caches)
+- **Hangfire**: RediSearch index güncelleme background job olarak
+- **AuditService**: Değişiklik loglama
+
+---
+
+#### [DELETE] `/api/social/content/{id}`
+
+İçerik silme (soft delete - IsDeleted flag).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> DeleteContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var content = await _context.Contents
+        .FirstOrDefaultAsync(c => c.Id == contentId && c.AuthorId == userId);
+
+    if (content == null)
+        return BaseResponse<bool>.ErrorResponse("Content not found or unauthorized", ErrorCodes.NotFound);
+
+    // Soft delete
+    content.IsDeleted = true;
+    content.DeletedAt = DateTime.UtcNow;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Content:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+    await _cacheService.RemoveByPatternAsync("Discover:*");
+
+    // RediSearch'ten kaldır
+    BackgroundJob.Enqueue(() => RedisSearchHelper.DeleteContentIndexAsync(contentId));
+
+    // Audit log
+    await _auditService.LogAsync(userId, "ContentDeleted", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Model Güncellemesi (Content.cs):**
+
+```csharp
+public class Content
+{
+    // ... mevcut property'ler ...
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
+}
+```
+
+---
+
+#### [GET] `/api/social/content/user/{userId}`
+
+Kullanıcının içeriklerini listele.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20, max: 50)
+- `type`: ContentType filtresi (opsiyonel)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<ContentDto>>> GetUserContentsAsync(
+    int userId, 
+    int page = 1, 
+    int limit = 20, 
+    ContentType? type = null,
+    bool forceRefresh = false)
+{
+    // 1. Cache kontrolü
+    var cacheKey = $"User:{userId}:Content:Page{page}:Type{type}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // 2. Query oluştur
+    var query = _context.Contents
+        .AsNoTracking()
+        .Where(c => c.AuthorId == userId && !c.IsDeleted)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .AsQueryable();
+
+    // 3. Type filtresi
+    if (type.HasValue)
+        query = query.Where(c => c.Type == type.Value);
+
+    // 4. Pagination
+    var totalCount = await query.CountAsync();
+    var contents = await query
+        .OrderByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    // 5. DTO mapping
+    var dtos = contents.Select(MapToContentDto).ToList();
+
+    var response = new PagedResponse<ContentDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    // 6. Cache'e yaz (10 dakika)
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(response);
+}
+```
+
+**Cache Stratejisi:**
+- Cache Key: `User:{userId}:Content:Page{page}:Type{type}`
+- Cache Süresi: 10 dakika
+- Invalidation: Kullanıcı yeni içerik oluşturduğunda veya güncellediğinde
+
+---
+
+#### [GET] `/api/social/content/my`
+
+Kendi içeriklerimi listele.
+
+**Query Parameters:** Aynı `GetUserContentsAsync` ile
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<ContentDto>>> GetMyContentsAsync(
+    int page = 1, 
+    int limit = 20, 
+    ContentType? type = null,
+    bool forceRefresh = false)
+{
+    var userId = _sessionService.GetUserId();
+    return await GetUserContentsAsync(userId, page, limit, type, forceRefresh);
+}
+```
+
+---
+
+#### [GET] `/api/social/content/trending`
+
+Trend içerikleri getir (son 24 saatte en çok etkileşim alan).
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetTrendingContentsAsync(
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    // 1. Cache kontrolü (5 dakika - trend hızlı değişir)
+    var cacheKey = $"Trending:Content:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // 2. Son 24 saat
+    var yesterday = DateTime.UtcNow.AddDays(-1);
+
+    // 3. Trending score hesapla: (LikeCount * 1.5) + (CommentCount * 2) + (ShareCount * 3) + (ViewCount * 0.1)
+    var trendingContents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => c.CreatedAt >= yesterday && !c.IsDeleted)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .ToListAsync();
+
+    var scored = trendingContents
+        .Select(c => new
+        {
+            Content = c,
+            Score = (c.LikeCount * 1.5) + (c.CommentCount * 2.0) + (c.ShareCount * 3.0) + (c.ViewCount * 0.1)
+        })
+        .OrderByDescending(x => x.Score)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .Select(x => MapToContentDto(x.Content))
+        .ToList();
+
+    // 4. Cache'e yaz (5 dakika)
+    await _cacheService.SetAsync(cacheKey, scored, TimeSpan.FromMinutes(5));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(scored);
+}
+```
+
+**Teknoloji Kullanımı:**
+- **CacheService**: 5 dakika cache (trend hızlı değişir)
+- **AsNoTracking()**: Read-only performans
+- **Scoring Algorithm**: Kendi algoritmamız (like, comment, share, view ağırlıkları)
+
+---
+
+#### [GET] `/api/social/content/popular`
+
+Popüler içerikler (tüm zamanlar).
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetPopularContentsAsync(
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    // Cache: 15 dakika (popüler içerikler daha yavaş değişir)
+    var cacheKey = $"Popular:Content:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    var popularContents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .OrderByDescending(c => c.LikeCount + c.CommentCount + c.ShareCount)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = popularContents.Select(MapToContentDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(15));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(dtos);
+}
+```
+
+---
+
+#### [GET] `/api/social/content/recommended`
+
+Kişiselleştirilmiş öneriler.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetRecommendedContentsAsync(
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Cache: 10 dakika
+    var cacheKey = $"Recommended:User:{userId}:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // 1. Kullanıcının ilgi alanlarını tespit et
+    var userInteractions = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.UserId == userId && (i.Type == InteractionType.Like || i.Type == InteractionType.Save))
+        .Select(i => i.Content.LessonId)
+        .Distinct()
+        .ToListAsync();
+
+    // 2. Kullanıcının takip ettiklerini al
+    var followingIds = await _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowerId == userId)
+        .Select(f => f.FollowingId)
+        .ToListAsync();
+
+    // 3. Öneri algoritması: İlgi alanı + Takip edilenler + Popülerlik
+    var candidateContents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && 
+                    c.CreatedAt >= DateTime.UtcNow.AddDays(-30) &&
+                    (userInteractions.Contains(c.LessonId) || followingIds.Contains(c.AuthorId)))
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .ToListAsync();
+
+    // 4. Scoring (FeedService kullan)
+    var scored = candidateContents
+        .Select(c => new
+        {
+            Content = c,
+            Score = _feedService.CalculateRecommendationScore(c, userId, userInteractions, followingIds)
+        })
+        .OrderByDescending(x => x.Score)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .Select(x => MapToContentDto(x.Content))
+        .ToList();
+
+    await _cacheService.SetAsync(cacheKey, scored, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(scored);
+}
+```
+
+**FeedService Kullanımı:**
+- **FeedService**: Recommendation scoring algoritması
+- **CacheService**: User-specific cache (her kullanıcı için ayrı öneriler)
+
+---
+
+#### [GET] `/api/social/content/by-tag/{tag}`
+
+Belirli bir tag'e göre içerikler.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetContentsByTagAsync(
+    string tag, 
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    // Cache: 10 dakika
+    var cacheKey = $"Content:Tag:{tag}:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // Tag arama (JSON içinde)
+    var tagLower = tag.ToLower();
+    var contents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && c.TagsJson.ToLower().Contains(tagLower))
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .OrderByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = contents.Select(MapToContentDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(dtos);
+}
+```
+
+**Not:** RediSearch kullanıldığında bu query çok daha hızlı olacak.
+
+---
+
+#### [GET] `/api/social/content/by-lesson/{lessonId}`
+
+Belirli bir derse göre içerikler.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetContentsByLessonAsync(
+    int lessonId, 
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var cacheKey = $"Content:Lesson:{lessonId}:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    var contents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && c.LessonId == lessonId)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .OrderByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = contents.Select(MapToContentDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(dtos);
+}
+```
+
+---
+
+### 5.5. Interactions (Etkileşimler)
+
+#### [POST] `/api/social/content/{id}/like`
+
+İçeriği beğen.
+
+**Teknoloji Kullanımı:**
+- **SignalR**: Real-time like notification
+- **CacheService**: Like count cache invalidation
+- **Hangfire**: Like count denormalization (background job)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> LikeContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    // 1. Daha önce beğenmiş mi kontrol et
+    var existingLike = await _context.Interactions
+        .FirstOrDefaultAsync(i => i.ContentId == contentId && 
+                                   i.UserId == userId && 
+                                   i.Type == InteractionType.Like);
+
+    if (existingLike != null)
+        return BaseResponse<bool>.ErrorResponse("Already liked", ErrorCodes.ValidationFailed);
+
+    // 2. Like oluştur
+    var like = new Interaction
+    {
+        UserId = userId,
+        ContentId = contentId,
+        Type = InteractionType.Like,
+        CreatedAt = DateTime.UtcNow,
+        User = null!,
+        Content = null!
+    };
+
+    _context.Interactions.Add(like);
+
+    // 3. Like count'u güncelle (optimistic update)
+    var content = await _context.Contents.FindAsync(contentId);
+    if (content != null)
+    {
+        content.LikeCount++;
+        await _context.SaveChangesAsync();
+    }
+
+    // 4. Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"Content:{contentId}:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+    await _cacheService.RemoveByPatternAsync("Trending:*");
+    await _cacheService.RemoveByPatternAsync("Popular:*");
+
+    // 5. SignalR notification (content author'a)
+    if (content != null && content.AuthorId != userId)
+    {
+        await _notificationService.SendNotificationAsync(
+            content.AuthorId,
+            "Yeni Beğeni",
+            $"{_sessionService.GetUserFullName()} içeriğinizi beğendi",
+            NotificationType.Like,
+            $"/content/{contentId}"
+        );
+    }
+
+    // 6. Audit log
+    await _auditService.LogAsync(userId, "ContentLiked", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [DELETE] `/api/social/content/{id}/like`
+
+Beğeniyi kaldır.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UnlikeContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var like = await _context.Interactions
+        .FirstOrDefaultAsync(i => i.ContentId == contentId && 
+                                   i.UserId == userId && 
+                                   i.Type == InteractionType.Like);
+
+    if (like == null)
+        return BaseResponse<bool>.ErrorResponse("Not liked", ErrorCodes.NotFound);
+
+    _context.Interactions.Remove(like);
+
+    // Like count'u azalt
+    var content = await _context.Contents.FindAsync(contentId);
+    if (content != null && content.LikeCount > 0)
+    {
+        content.LikeCount--;
+        await _context.SaveChangesAsync();
+    }
+
+    // Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"Content:{contentId}:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+
+    // Audit log
+    await _auditService.LogAsync(userId, "ContentUnliked", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [POST] `/api/social/content/{id}/save`
+
+İçeriği kaydet (bookmark).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> SaveContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Daha önce kaydedilmiş mi?
+    var existingSave = await _context.Interactions
+        .FirstOrDefaultAsync(i => i.ContentId == contentId && 
+                                   i.UserId == userId && 
+                                   i.Type == InteractionType.Save);
+
+    if (existingSave != null)
+        return BaseResponse<bool>.ErrorResponse("Already saved", ErrorCodes.ValidationFailed);
+
+    var save = new Interaction
+    {
+        UserId = userId,
+        ContentId = contentId,
+        Type = InteractionType.Save,
+        CreatedAt = DateTime.UtcNow,
+        User = null!,
+        Content = null!
+    };
+
+    _context.Interactions.Add(save);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation (saved contents list)
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Saved:*");
+
+    await _auditService.LogAsync(userId, "ContentSaved", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [DELETE] `/api/social/content/{id}/save`
+
+Kaydı kaldır.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UnsaveContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var save = await _context.Interactions
+        .FirstOrDefaultAsync(i => i.ContentId == contentId && 
+                                   i.UserId == userId && 
+                                   i.Type == InteractionType.Save);
+
+    if (save == null)
+        return BaseResponse<bool>.ErrorResponse("Not saved", ErrorCodes.NotFound);
+
+    _context.Interactions.Remove(save);
+    await _context.SaveChangesAsync();
+
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Saved:*");
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [POST] `/api/social/content/{id}/report`
+
+İçeriği raporla.
+
+**Request:**
+
+```json
+{
+  "reason": "Spam",
+  "description": "Uygunsuz içerik"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> ReportContentAsync(int contentId, ReportContentRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Daha önce raporlanmış mı?
+    var existingReport = await _context.Interactions
+        .FirstOrDefaultAsync(i => i.ContentId == contentId && 
+                                   i.UserId == userId && 
+                                   i.Type == InteractionType.Report);
+
+    if (existingReport != null)
+        return BaseResponse<bool>.ErrorResponse("Already reported", ErrorCodes.ValidationFailed);
+
+    var report = new Interaction
+    {
+        UserId = userId,
+        ContentId = contentId,
+        Type = InteractionType.Report,
+        CreatedAt = DateTime.UtcNow,
+        User = null!,
+        Content = null!
+    };
+
+    _context.Interactions.Add(report);
+
+    // Report kaydı (ayrı tablo olabilir - detaylı bilgi için)
+    var contentReport = new ContentReport
+    {
+        ContentId = contentId,
+        ReporterId = userId,
+        Reason = request.Reason,
+        Description = request.Description,
+        Status = ReportStatus.Pending,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.ContentReports.Add(contentReport);
+    await _context.SaveChangesAsync();
+
+    // Admin'lere bildirim (background job)
+    BackgroundJob.Enqueue(() => NotifyAdminsAboutReportAsync(contentId, contentReport.Id));
+
+    await _auditService.LogAsync(userId, "ContentReported", 
+        JsonSerializer.Serialize(new { ContentId = contentId, Reason = request.Reason }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Yeni Model (ContentReport.cs):**
+
+```csharp
+public class ContentReport
+{
+    public int Id { get; set; }
+    public int ContentId { get; set; }
+    public Content Content { get; set; }
+    public int ReporterId { get; set; }
+    public User Reporter { get; set; }
+    public string Reason { get; set; }
+    public string? Description { get; set; }
+    public ReportStatus Status { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public enum ReportStatus : byte
+{
+    Pending = 1,
+    Reviewed = 2,
+    Resolved = 3,
+    Rejected = 4
+}
+```
+
+---
+
+#### [GET] `/api/social/content/{id}/likes`
+
+İçeriği beğenenler listesi.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 50)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<UserDto>>> GetContentLikesAsync(int contentId, int page = 1, int limit = 50)
+{
+    var cacheKey = $"Content:{contentId}:Likes:Page{page}";
+    var cached = await _cacheService.GetAsync<List<UserDto>>(cacheKey);
+    if (cached != null)
+        return BaseResponse<List<UserDto>>.SuccessResponse(cached);
+
+    var likes = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && i.Type == InteractionType.Like)
+        .Include(i => i.User)
+        .OrderByDescending(i => i.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .Select(i => MapToUserDto(i.User))
+        .ToListAsync();
+
+    await _cacheService.SetAsync(cacheKey, likes, TimeSpan.FromMinutes(5));
+
+    return BaseResponse<List<UserDto>>.SuccessResponse(likes);
+}
+```
+
+---
+
+#### [GET] `/api/social/content/{id}/saves`
+
+İçeriği kaydedenler listesi (sadece içerik sahibi görebilir).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<UserDto>>> GetContentSavesAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Sadece içerik sahibi görebilir
+    var content = await _context.Contents
+        .AsNoTracking()
+        .FirstOrDefaultAsync(c => c.Id == contentId);
+
+    if (content == null || content.AuthorId != userId)
+        return BaseResponse<List<UserDto>>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
+
+    var saves = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && i.Type == InteractionType.Save)
+        .Include(i => i.User)
+        .OrderByDescending(i => i.CreatedAt)
+        .Select(i => MapToUserDto(i.User))
+        .ToListAsync();
+
+    return BaseResponse<List<UserDto>>.SuccessResponse(saves);
+}
+```
+
+---
+
+#### [POST] `/api/social/content/{id}/share`
+
+İçeriği paylaş (share count artır).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> ShareContentAsync(int contentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var content = await _context.Contents.FindAsync(contentId);
+    if (content == null)
+        return BaseResponse<bool>.ErrorResponse("Content not found", ErrorCodes.NotFound);
+
+    // Share count artır
+    content.ShareCount++;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+    await _cacheService.RemoveByPatternAsync("Trending:*");
+
+    // Notification (content author'a)
+    if (content.AuthorId != userId)
+    {
+        await _notificationService.SendNotificationAsync(
+            content.AuthorId,
+            "İçerik Paylaşıldı",
+            $"{_sessionService.GetUserFullName()} içeriğinizi paylaştı",
+            NotificationType.Share,
+            $"/content/{contentId}"
+        );
+    }
+
+    await _auditService.LogAsync(userId, "ContentShared", 
+        JsonSerializer.Serialize(new { ContentId = contentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+### 5.6. Comments (Yorumlar)
+
+#### [POST] `/api/social/content/{id}/comment`
+
+Yorum yap.
+
+**Request:**
+
+```json
+{
+  "text": "Çok güzel bir soru, teşekkürler!",
+  "imageUrl": "https://cdn.../solution.jpg"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<CommentDto>> AddCommentAsync(int contentId, AddCommentRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Content var mı?
+    var content = await _context.Contents
+        .Include(c => c.Author)
+        .FirstOrDefaultAsync(c => c.Id == contentId && !c.IsDeleted);
+
+    if (content == null)
+        return BaseResponse<CommentDto>.ErrorResponse("Content not found", ErrorCodes.NotFound);
+
+    // Comment oluştur
+    var comment = new Comment
+    {
+        ContentId = contentId,
+        UserId = userId,
+        Text = request.Text,
+        ImageUrl = request.ImageUrl,
+        IsCorrectAnswer = false,
+        CreatedAt = DateTime.UtcNow,
+        Content = null!,
+        User = null!
+    };
+
+    _context.Comments.Add(comment);
+
+    // Comment count artır
+    content.CommentCount++;
+    await _context.SaveChangesAsync();
+
+    // DTO mapping (User bilgisi ile)
+    await _context.Entry(comment).Reference(c => c.User).LoadAsync();
+    var dto = MapToCommentDto(comment);
+
+    // Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"Content:{contentId}:Comments:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+
+    // SignalR notification (real-time comment)
+    await _chatHub.Clients.Group($"Content_{contentId}")
+        .SendAsync("NewComment", dto);
+
+    // Notification (content author'a)
+    if (content.AuthorId != userId)
+    {
+        await _notificationService.SendNotificationAsync(
+            content.AuthorId,
+            "Yeni Yorum",
+            $"{_sessionService.GetUserFullName()} içeriğinize yorum yaptı",
+            NotificationType.Comment,
+            $"/content/{contentId}"
+        );
+    }
+
+    await _auditService.LogAsync(userId, "CommentAdded", 
+        JsonSerializer.Serialize(new { ContentId = contentId, CommentId = comment.Id }));
+
+    return BaseResponse<CommentDto>.SuccessResponse(dto);
+}
+```
+
+**SignalR Hub Güncellemesi (ChatHub.cs):**
+
+```csharp
+public async Task JoinContentGroup(int contentId)
+{
+    await Groups.AddToGroupAsync(Context.ConnectionId, $"Content_{contentId}");
+}
+
+public async Task LeaveContentGroup(int contentId)
+{
+    await Groups.RemoveFromGroupAsync(Context.ConnectionId, $"Content_{contentId}");
+}
+```
+
+---
+
+#### [GET] `/api/social/content/{id}/comments`
+
+İçeriğin yorumlarını getir.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<CommentDto>>> GetContentCommentsAsync(
+    int contentId, 
+    int page = 1, 
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var cacheKey = $"Content:{contentId}:Comments:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<CommentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<CommentDto>>.SuccessResponse(cached);
+    }
+
+    var query = _context.Comments
+        .AsNoTracking()
+        .Where(c => c.ContentId == contentId)
+        .Include(c => c.User)
+        .AsQueryable();
+
+    var totalCount = await query.CountAsync();
+    var comments = await query
+        .OrderByDescending(c => c.IsCorrectAnswer) // Correct answer önce
+        .ThenByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = comments.Select(MapToCommentDto).ToList();
+
+    var response = new PagedResponse<CommentDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
+
+    return BaseResponse<PagedResponse<CommentDto>>.SuccessResponse(response);
+}
+```
+
+---
+
+#### [PUT] `/api/social/comment/{id}`
+
+Yorum düzenle (sadece sahibi).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UpdateCommentAsync(int commentId, UpdateCommentRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    var comment = await _context.Comments
+        .FirstOrDefaultAsync(c => c.Id == commentId && c.UserId == userId);
+
+    if (comment == null)
+        return BaseResponse<bool>.ErrorResponse("Comment not found or unauthorized", ErrorCodes.NotFound);
+
+    if (!string.IsNullOrEmpty(request.Text))
+        comment.Text = request.Text;
+    if (request.ImageUrl != null)
+        comment.ImageUrl = request.ImageUrl;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"Content:{comment.ContentId}:Comments:*");
+    await _cacheService.RemoveAsync($"Content:{comment.ContentId}:Detail");
+
+    await _auditService.LogAsync(userId, "CommentUpdated", 
+        JsonSerializer.Serialize(new { CommentId = commentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [DELETE] `/api/social/comment/{id}`
+
+Yorum sil (sadece sahibi veya içerik sahibi).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> DeleteCommentAsync(int commentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var comment = await _context.Comments
+        .Include(c => c.Content)
+        .FirstOrDefaultAsync(c => c.Id == commentId);
+
+    if (comment == null)
+        return BaseResponse<bool>.ErrorResponse("Comment not found", ErrorCodes.NotFound);
+
+    // Sadece yorum sahibi veya içerik sahibi silebilir
+    if (comment.UserId != userId && comment.Content.AuthorId != userId)
+        return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
+
+    _context.Comments.Remove(comment);
+
+    // Comment count azalt
+    var content = await _context.Contents.FindAsync(comment.ContentId);
+    if (content != null && content.CommentCount > 0)
+    {
+        content.CommentCount--;
+        await _context.SaveChangesAsync();
+    }
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"Content:{comment.ContentId}:Comments:*");
+    await _cacheService.RemoveAsync($"Content:{comment.ContentId}:Detail");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+
+    await _auditService.LogAsync(userId, "CommentDeleted", 
+        JsonSerializer.Serialize(new { CommentId = commentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [POST] `/api/social/comment/{id}/like`
+
+Yorumu beğen.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> LikeCommentAsync(int commentId)
+{
+    var userId = _sessionService.GetUserId();
+
+    // CommentLike model'i gerekli (Interaction'tan ayrı veya Interaction kullanılabilir)
+    var existingLike = await _context.CommentLikes
+        .FirstOrDefaultAsync(cl => cl.CommentId == commentId && cl.UserId == userId);
+
+    if (existingLike != null)
+        return BaseResponse<bool>.ErrorResponse("Already liked", ErrorCodes.ValidationFailed);
+
+    var like = new CommentLike
+    {
+        CommentId = commentId,
+        UserId = userId,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.CommentLikes.Add(like);
+
+    var comment = await _context.Comments.FindAsync(commentId);
+    if (comment != null)
+    {
+        comment.LikeCount++;
+        await _context.SaveChangesAsync();
+    }
+
+    // Notification (comment author'a)
+    if (comment != null && comment.UserId != userId)
+    {
+        await _notificationService.SendNotificationAsync(
+            comment.UserId,
+            "Yorum Beğenildi",
+            $"{_sessionService.GetUserFullName()} yorumunuzu beğendi",
+            NotificationType.Like,
+            $"/content/{comment.ContentId}"
+        );
+    }
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Yeni Model (CommentLike.cs):**
+
+```csharp
+public class CommentLike
+{
+    public int Id { get; set; }
+    public int CommentId { get; set; }
+    public Comment Comment { get; set; }
+    public int UserId { get; set; }
+    public User User { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+**Comment Model Güncellemesi:**
+
+```csharp
+public class Comment
+{
+    // ... mevcut property'ler ...
+    public int LikeCount { get; set; } = 0;
+    public ICollection<CommentLike> Likes { get; set; }
+}
+```
+
+---
+
+#### [POST] `/api/social/comment/{id}/reply`
+
+Yorum yanıtla (nested comments).
+
+**Request:**
+
+```json
+{
+  "text": "Haklısınız, teşekkürler!",
+  "imageUrl": null
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<CommentDto>> ReplyToCommentAsync(int commentId, AddCommentRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    var parentComment = await _context.Comments
+        .Include(c => c.Content)
+        .FirstOrDefaultAsync(c => c.Id == commentId);
+
+    if (parentComment == null)
+        return BaseResponse<CommentDto>.ErrorResponse("Comment not found", ErrorCodes.NotFound);
+
+    // Reply oluştur
+    var reply = new Comment
+    {
+        ContentId = parentComment.ContentId,
+        UserId = userId,
+        Text = request.Text,
+        ImageUrl = request.ImageUrl,
+        ParentCommentId = commentId, // Nested comment için
+        IsCorrectAnswer = false,
+        CreatedAt = DateTime.UtcNow,
+        Content = null!,
+        User = null!
+    };
+
+    _context.Comments.Add(reply);
+
+    // Comment count artır (content'e)
+    var content = await _context.Contents.FindAsync(parentComment.ContentId);
+    if (content != null)
+    {
+        content.CommentCount++;
+        await _context.SaveChangesAsync();
+    }
+
+    await _context.Entry(reply).Reference(c => c.User).LoadAsync();
+    var dto = MapToCommentDto(reply);
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"Content:{parentComment.ContentId}:Comments:*");
+    await _cacheService.RemoveAsync($"Content:{parentComment.ContentId}:Detail");
+
+    // SignalR notification
+    await _chatHub.Clients.Group($"Content_{parentComment.ContentId}")
+        .SendAsync("NewCommentReply", dto);
+
+    // Notification (parent comment author'a)
+    if (parentComment.UserId != userId)
+    {
+        await _notificationService.SendNotificationAsync(
+            parentComment.UserId,
+            "Yorum Yanıtı",
+            $"{_sessionService.GetUserFullName()} yorumunuza yanıt verdi",
+            NotificationType.Comment,
+            $"/content/{parentComment.ContentId}"
+        );
+    }
+
+    await _auditService.LogAsync(userId, "CommentReplied", 
+        JsonSerializer.Serialize(new { CommentId = commentId, ReplyId = reply.Id }));
+
+    return BaseResponse<CommentDto>.SuccessResponse(dto);
+}
+```
+
+**Comment Model Güncellemesi:**
+
+```csharp
+public class Comment
+{
+    // ... mevcut property'ler ...
+    public int? ParentCommentId { get; set; }
+    public Comment? ParentComment { get; set; }
+    public ICollection<Comment> Replies { get; set; }
+}
+```
+
+---
+
+#### [GET] `/api/social/comment/{id}/replies`
+
+Yorum yanıtlarını getir.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<CommentDto>>> GetCommentRepliesAsync(int commentId)
+{
+    var cacheKey = $"Comment:{commentId}:Replies";
+    var cached = await _cacheService.GetAsync<List<CommentDto>>(cacheKey);
+    if (cached != null)
+        return BaseResponse<List<CommentDto>>.SuccessResponse(cached);
+
+    var replies = await _context.Comments
+        .AsNoTracking()
+        .Where(c => c.ParentCommentId == commentId)
+        .Include(c => c.User)
+        .OrderBy(c => c.CreatedAt)
+        .ToListAsync();
+
+    var dtos = replies.Select(MapToCommentDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(5));
+
+    return BaseResponse<List<CommentDto>>.SuccessResponse(dtos);
+}
+```
+
+---
+
+#### [PUT] `/api/social/content/{id}/mark-solved`
+
+Soruyu çözüldü olarak işaretle (sadece soru sahibi).
+
+**Request:**
+
+```json
+{
+  "commentId": 123  // Doğru cevap olarak işaretlenecek yorum ID
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> MarkContentAsSolvedAsync(int contentId, MarkSolvedRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    var content = await _context.Contents
+        .FirstOrDefaultAsync(c => c.Id == contentId && c.AuthorId == userId && c.Type == ContentType.Question);
+
+    if (content == null)
+        return BaseResponse<bool>.ErrorResponse("Content not found or not a question", ErrorCodes.NotFound);
+
+    // Tüm yorumları "correct answer" olmaktan çıkar
+    var previousCorrect = await _context.Comments
+        .Where(c => c.ContentId == contentId && c.IsCorrectAnswer)
+        .ToListAsync();
+
+    foreach (var comment in previousCorrect)
+    {
+        comment.IsCorrectAnswer = false;
+    }
+
+    // Yeni doğru cevabı işaretle
+    if (request.CommentId.HasValue)
+    {
+        var correctComment = await _context.Comments
+            .FirstOrDefaultAsync(c => c.Id == request.CommentId.Value && c.ContentId == contentId);
+
+        if (correctComment != null)
+        {
+            correctComment.IsCorrectAnswer = true;
+        }
+    }
+
+    content.IsSolved = true;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveAsync($"Content:{contentId}:Detail");
+    await _cacheService.RemoveByPatternAsync($"Content:{contentId}:Comments:*");
+    await _cacheService.RemoveByPatternAsync("Feed:*");
+
+    // Notification (doğru cevabı veren kullanıcıya)
+    if (request.CommentId.HasValue)
+    {
+        var correctComment = await _context.Comments
+            .Include(c => c.User)
+            .FirstOrDefaultAsync(c => c.Id == request.CommentId.Value);
+
+        if (correctComment != null && correctComment.UserId != userId)
+        {
+            await _notificationService.SendNotificationAsync(
+                correctComment.UserId,
+                "Doğru Cevap",
+                "Cevabınız doğru olarak işaretlendi",
+                NotificationType.Achievement,
+                $"/content/{contentId}"
+            );
+        }
+    }
+
+    await _auditService.LogAsync(userId, "ContentMarkedSolved", 
+        JsonSerializer.Serialize(new { ContentId = contentId, CommentId = request.CommentId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+### 5.7. Follow System (Takip Sistemi)
+
+#### [POST] `/api/social/user/{userId}/follow`
+
+Kullanıcıyı takip et.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> FollowUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    if (userId == targetUserId)
+        return BaseResponse<bool>.ErrorResponse("Cannot follow yourself", ErrorCodes.ValidationFailed);
+
+    // Zaten takip ediliyor mu?
+    var existingFollow = await _context.Follows
+        .FirstOrDefaultAsync(f => f.FollowerId == userId && f.FollowingId == targetUserId);
+
+    if (existingFollow != null)
+        return BaseResponse<bool>.ErrorResponse("Already following", ErrorCodes.ValidationFailed);
+
+    var follow = new Follow
+    {
+        FollowerId = userId,
+        FollowingId = targetUserId,
+        CreatedAt = DateTime.UtcNow,
+        Follower = null!,
+        Following = null!
+    };
+
+    _context.Follows.Add(follow);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Following:*");
+    await _cacheService.RemoveByPatternAsync($"User:{targetUserId}:Followers:*");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Feed:*");
+    await _cacheService.RemoveByPatternAsync($"Recommended:*");
+
+    // Notification (takip edilen kullanıcıya)
+    await _notificationService.SendNotificationAsync(
+        targetUserId,
+        "Yeni Takipçi",
+        $"{_sessionService.GetUserFullName()} sizi takip etmeye başladı",
+        NotificationType.Follow,
+        $"/user/{userId}"
+    );
+
+    // SignalR notification (real-time)
+    await _chatHub.Clients.Group($"User_{targetUserId}")
+        .SendAsync("NewFollower", new { FollowerId = userId, FollowerName = _sessionService.GetUserFullName() });
+
+    await _auditService.LogAsync(userId, "UserFollowed", 
+        JsonSerializer.Serialize(new { FollowingId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [DELETE] `/api/social/user/{userId}/follow`
+
+Takibi bırak.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UnfollowUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var follow = await _context.Follows
+        .FirstOrDefaultAsync(f => f.FollowerId == userId && f.FollowingId == targetUserId);
+
+    if (follow == null)
+        return BaseResponse<bool>.ErrorResponse("Not following", ErrorCodes.NotFound);
+
+    _context.Follows.Remove(follow);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Following:*");
+    await _cacheService.RemoveByPatternAsync($"User:{targetUserId}:Followers:*");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Feed:*");
+
+    await _auditService.LogAsync(userId, "UserUnfollowed", 
+        JsonSerializer.Serialize(new { FollowingId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/followers`
+
+Kullanıcının takipçilerini listele.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 50)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<UserDto>>> GetUserFollowersAsync(
+    int userId, 
+    int page = 1, 
+    int limit = 50,
+    bool forceRefresh = false)
+{
+    var cacheKey = $"User:{userId}:Followers:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<UserDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(cached);
+    }
+
+    var query = _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowingId == userId)
+        .Include(f => f.Follower)
+        .AsQueryable();
+
+    var totalCount = await query.CountAsync();
+    var follows = await query
+        .OrderByDescending(f => f.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = follows.Select(f => MapToUserDto(f.Follower)).ToList();
+
+    var response = new PagedResponse<UserDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(response);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/following`
+
+Kullanıcının takip ettiklerini listele.
+
+**Query Parameters:** Aynı `GetUserFollowersAsync` ile
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<UserDto>>> GetUserFollowingAsync(
+    int userId, 
+    int page = 1, 
+    int limit = 50,
+    bool forceRefresh = false)
+{
+    var cacheKey = $"User:{userId}:Following:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<UserDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(cached);
+    }
+
+    var query = _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowerId == userId)
+        .Include(f => f.Following)
+        .AsQueryable();
+
+    var totalCount = await query.CountAsync();
+    var follows = await query
+        .OrderByDescending(f => f.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = follows.Select(f => MapToUserDto(f.Following)).ToList();
+
+    var response = new PagedResponse<UserDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(response);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/mutual-follows`
+
+Ortak takipler (karşılıklı takip edilenler).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<UserDto>>> GetMutualFollowsAsync(int userId)
+{
+    var currentUserId = _sessionService.GetUserId();
+
+    // Her iki yönde de takip edilenler
+    var mutualFollows = await _context.Follows
+        .AsNoTracking()
+        .Where(f1 => f1.FollowerId == currentUserId &&
+                     _context.Follows.Any(f2 => f2.FollowerId == userId && f2.FollowingId == f1.FollowingId))
+        .Include(f => f.Following)
+        .Select(f => MapToUserDto(f.Following))
+        .ToListAsync();
+
+    return BaseResponse<List<UserDto>>.SuccessResponse(mutualFollows);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/recommendations`
+
+Önerilen kullanıcılar (takip edilmeyen, benzer ilgi alanlarına sahip).
+
+**Query Parameters:**
+- `limit`: Öneri sayısı (default: 10)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<UserDto>>> GetUserRecommendationsAsync(int limit = 10)
+{
+    var userId = _sessionService.GetUserId();
+
+    var cacheKey = $"User:{userId}:Recommendations";
+    var cached = await _cacheService.GetAsync<List<UserDto>>(cacheKey);
+    if (cached != null)
+        return BaseResponse<List<UserDto>>.SuccessResponse(cached);
+
+    // 1. Zaten takip edilenleri al
+    var followingIds = await _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowerId == userId)
+        .Select(f => f.FollowingId)
+        .ToListAsync();
+
+    // 2. Kullanıcının ilgi alanlarını tespit et
+    var userInterestedLessons = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.UserId == userId && (i.Type == InteractionType.Like || i.Type == InteractionType.Save))
+        .Select(i => i.Content.LessonId)
+        .Distinct()
+        .ToListAsync();
+
+    // 3. Benzer ilgi alanlarına sahip kullanıcıları bul
+    var recommendedUsers = await _context.Users
+        .AsNoTracking()
+        .Where(u => u.Id != userId && 
+                    !followingIds.Contains(u.Id) &&
+                    _context.Interactions.Any(i => i.UserId == u.Id && 
+                                                    (i.Type == InteractionType.Like || i.Type == InteractionType.Save) &&
+                                                    userInterestedLessons.Contains(i.Content.LessonId)))
+        .OrderByDescending(u => _context.Interactions.Count(i => i.UserId == u.Id && 
+                                                                  userInterestedLessons.Contains(i.Content.LessonId)))
+        .Take(limit)
+        .Select(u => MapToUserDto(u))
+        .ToListAsync();
+
+    await _cacheService.SetAsync(cacheKey, recommendedUsers, TimeSpan.FromMinutes(30));
+
+    return BaseResponse<List<UserDto>>.SuccessResponse(recommendedUsers);
+}
+```
+
+---
+
+### 5.8. User Profile Social (Sosyal Profil)
+
+#### [GET] `/api/social/user/{userId}/profile`
+
+Kullanıcının sosyal profil bilgileri.
+
+**Query Parameters:**
+- `forceRefresh`: Cache bypass (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "userId": 123,
+    "fullName": "Ahmet Yılmaz",
+    "profileImageUrl": "https://cdn.../avatar.jpg",
+    "bio": "Matematik öğretmeni",
+    "contentCount": 45,
+    "followerCount": 120,
+    "followingCount": 85,
+    "isFollowing": true,
+    "isBlocked": false
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<SocialProfileDto>> GetSocialProfileAsync(int userId, bool forceRefresh = false)
+{
+    var currentUserId = _sessionService.GetUserId();
+
+    var cacheKey = $"SocialProfile:User:{userId}:Viewer:{currentUserId}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<SocialProfileDto>(cacheKey);
+        if (cached != null)
+            return BaseResponse<SocialProfileDto>.SuccessResponse(cached);
+    }
+
+    var user = await _context.Users
+        .AsNoTracking()
+        .FirstOrDefaultAsync(u => u.Id == userId);
+
+    if (user == null)
+        return BaseResponse<SocialProfileDto>.ErrorResponse("User not found", ErrorCodes.NotFound);
+
+    // İstatistikler
+    var contentCount = await _context.Contents
+        .AsNoTracking()
+        .CountAsync(c => c.AuthorId == userId && !c.IsDeleted);
+
+    var followerCount = await _context.Follows
+        .AsNoTracking()
+        .CountAsync(f => f.FollowingId == userId);
+
+    var followingCount = await _context.Follows
+        .AsNoTracking()
+        .CountAsync(f => f.FollowerId == userId);
+
+    // Takip durumu
+    var isFollowing = await _context.Follows
+        .AsNoTracking()
+        .AnyAsync(f => f.FollowerId == currentUserId && f.FollowingId == userId);
+
+    // Engelleme durumu
+    var isBlocked = await _context.Blocks
+        .AsNoTracking()
+        .AnyAsync(b => (b.BlockerId == currentUserId && b.BlockedId == userId) ||
+                       (b.BlockerId == userId && b.BlockedId == currentUserId));
+
+    var dto = new SocialProfileDto
+    {
+        UserId = userId,
+        FullName = user.FullName,
+        ProfileImageUrl = user.ProfileImageUrl,
+        Bio = user.Bio,
+        ContentCount = contentCount,
+        FollowerCount = followerCount,
+        FollowingCount = followingCount,
+        IsFollowing = isFollowing,
+        IsBlocked = isBlocked
+    };
+
+    await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(15));
+
+    return BaseResponse<SocialProfileDto>.SuccessResponse(dto);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/statistics`
+
+Kullanıcının sosyal istatistikleri.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalLikes": 1250,
+    "totalComments": 340,
+    "totalShares": 89,
+    "averageLikesPerContent": 27.8,
+    "mostLikedContent": {
+      "id": 456,
+      "title": "Zorlu Matematik Sorusu",
+      "likeCount": 156
+    },
+    "topLesson": {
+      "id": 1,
+      "name": "Matematik",
+      "contentCount": 25
+    }
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<SocialStatisticsDto>> GetUserSocialStatisticsAsync(int userId)
+{
+    var cacheKey = $"SocialStatistics:User:{userId}";
+    var cached = await _cacheService.GetAsync<SocialStatisticsDto>(cacheKey);
+    if (cached != null)
+        return BaseResponse<SocialStatisticsDto>.SuccessResponse(cached);
+
+    var contents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => c.AuthorId == userId && !c.IsDeleted)
+        .ToListAsync();
+
+    var totalLikes = contents.Sum(c => c.LikeCount);
+    var totalComments = contents.Sum(c => c.CommentCount);
+    var totalShares = contents.Sum(c => c.ShareCount);
+    var contentCount = contents.Count;
+
+    var averageLikesPerContent = contentCount > 0 ? (double)totalLikes / contentCount : 0;
+
+    var mostLikedContent = contents
+        .OrderByDescending(c => c.LikeCount)
+        .FirstOrDefault();
+
+    // En çok içerik paylaşılan ders
+    var topLesson = await _context.Contents
+        .AsNoTracking()
+        .Where(c => c.AuthorId == userId && !c.IsDeleted && c.LessonId.HasValue)
+        .GroupBy(c => c.LessonId)
+        .Select(g => new { LessonId = g.Key, Count = g.Count() })
+        .OrderByDescending(x => x.Count)
+        .FirstOrDefaultAsync();
+
+    var dto = new SocialStatisticsDto
+    {
+        TotalLikes = totalLikes,
+        TotalComments = totalComments,
+        TotalShares = totalShares,
+        AverageLikesPerContent = averageLikesPerContent,
+        MostLikedContent = mostLikedContent != null ? new ContentSummaryDto
+        {
+            Id = mostLikedContent.Id,
+            Title = mostLikedContent.Title,
+            LikeCount = mostLikedContent.LikeCount
+        } : null,
+        TopLesson = topLesson != null ? new LessonSummaryDto
+        {
+            Id = topLesson.LessonId!.Value,
+            Name = await _context.Lessons.Where(l => l.Id == topLesson.LessonId).Select(l => l.Name).FirstOrDefaultAsync(),
+            ContentCount = topLesson.Count
+        } : null
+    };
+
+    await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(30));
+
+    return BaseResponse<SocialStatisticsDto>.SuccessResponse(dto);
+}
+```
+
+---
+
+#### [POST] `/api/social/user/{userId}/block`
+
+Kullanıcıyı engelle.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> BlockUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    if (userId == targetUserId)
+        return BaseResponse<bool>.ErrorResponse("Cannot block yourself", ErrorCodes.ValidationFailed);
+
+    // Zaten engellenmiş mi?
+    var existingBlock = await _context.Blocks
+        .FirstOrDefaultAsync(b => b.BlockerId == userId && b.BlockedId == targetUserId);
+
+    if (existingBlock != null)
+        return BaseResponse<bool>.ErrorResponse("Already blocked", ErrorCodes.ValidationFailed);
+
+    var block = new Block
+    {
+        BlockerId = userId,
+        BlockedId = targetUserId,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.Blocks.Add(block);
+
+    // Takip varsa kaldır (her iki yönde)
+    var follows = await _context.Follows
+        .Where(f => (f.FollowerId == userId && f.FollowingId == targetUserId) ||
+                    (f.FollowerId == targetUserId && f.FollowingId == userId))
+        .ToListAsync();
+
+    _context.Follows.RemoveRange(follows);
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:*");
+    await _cacheService.RemoveByPatternAsync($"User:{targetUserId}:*");
+    await _cacheService.RemoveByPatternAsync($"Feed:*");
+
+    await _auditService.LogAsync(userId, "UserBlocked", 
+        JsonSerializer.Serialize(new { BlockedId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Yeni Model (Block.cs):**
+
+```csharp
+public class Block
+{
+    public int Id { get; set; }
+    public int BlockerId { get; set; }
+    public User Blocker { get; set; }
+    public int BlockedId { get; set; }
+    public User Blocked { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+---
+
+#### [DELETE] `/api/social/user/{userId}/block`
+
+Engeli kaldır.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UnblockUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var block = await _context.Blocks
+        .FirstOrDefaultAsync(b => b.BlockerId == userId && b.BlockedId == targetUserId);
+
+    if (block == null)
+        return BaseResponse<bool>.ErrorResponse("Not blocked", ErrorCodes.NotFound);
+
+    _context.Blocks.Remove(block);
+    await _context.SaveChangesAsync();
+
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:*");
+    await _cacheService.RemoveByPatternAsync($"User:{targetUserId}:*");
+
+    await _auditService.LogAsync(userId, "UserUnblocked", 
+        JsonSerializer.Serialize(new { UnblockedId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [POST] `/api/social/user/{userId}/mute`
+
+Kullanıcıyı sessizleştir (bildirimleri kapat ama takip etmeye devam et).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> MuteUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    if (userId == targetUserId)
+        return BaseResponse<bool>.ErrorResponse("Cannot mute yourself", ErrorCodes.ValidationFailed);
+
+    // Zaten sessizleştirilmiş mi?
+    var existingMute = await _context.Mutes
+        .FirstOrDefaultAsync(m => m.UserId == userId && m.MutedUserId == targetUserId);
+
+    if (existingMute != null)
+        return BaseResponse<bool>.ErrorResponse("Already muted", ErrorCodes.ValidationFailed);
+
+    var mute = new Mute
+    {
+        UserId = userId,
+        MutedUserId = targetUserId,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.Mutes.Add(mute);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Feed:*");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Muted:*");
+
+    await _auditService.LogAsync(userId, "UserMuted", 
+        JsonSerializer.Serialize(new { MutedUserId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Yeni Model (Mute.cs):**
+
+```csharp
+public class Mute
+{
+    public int Id { get; set; }
+    public int UserId { get; set; } // Sessizleştiren
+    public User User { get; set; }
+    public int MutedUserId { get; set; } // Sessizleştirilen
+    public User MutedUser { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+**Not:** Block'tan farklı olarak, Mute edilen kullanıcıların içerikleri feed'de gösterilmez ama takip ilişkisi devam eder.
+
+---
+
+#### [DELETE] `/api/social/user/{userId}/mute`
+
+Sessizleştirmeyi kaldır.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> UnmuteUserAsync(int targetUserId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var mute = await _context.Mutes
+        .FirstOrDefaultAsync(m => m.UserId == userId && m.MutedUserId == targetUserId);
+
+    if (mute == null)
+        return BaseResponse<bool>.ErrorResponse("Not muted", ErrorCodes.NotFound);
+
+    _context.Mutes.Remove(mute);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Feed:*");
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Muted:*");
+
+    await _auditService.LogAsync(userId, "UserUnmuted", 
+        JsonSerializer.Serialize(new { UnmutedUserId = targetUserId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/muted`
+
+Sessizleştirilen kullanıcılar listesi.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 50)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<UserDto>>> GetMutedUsersAsync(
+    int page = 1,
+    int limit = 50,
+    bool forceRefresh = false)
+{
+    var userId = _sessionService.GetUserId();
+
+    var cacheKey = $"User:{userId}:Muted:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<UserDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(cached);
+    }
+
+    var query = _context.Mutes
+        .AsNoTracking()
+        .Where(m => m.UserId == userId)
+        .Include(m => m.MutedUser)
+        .AsQueryable();
+
+    var totalCount = await query.CountAsync();
+    var mutes = await query
+        .OrderByDescending(m => m.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = mutes.Select(m => MapToUserDto(m.MutedUser)).ToList();
+
+    var response = new PagedResponse<UserDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<PagedResponse<UserDto>>.SuccessResponse(response);
+}
+```
+
+**Teknoloji Kullanımı:**
+- **CacheService**: Muted users listesi 10 dakika cache'lenir
+- **AsNoTracking()**: Read-only query'ler için performans
+- **AuditService**: Mute/Unmute işlemleri loglanır
+- **Feed Filtreleme**: Feed oluşturulurken mute edilen kullanıcıların içerikleri filtrelenir
+
+**Feed'de Kullanımı:**
+
+Feed oluşturulurken mute edilen kullanıcıların içerikleri gösterilmez:
+
+```csharp
+// FeedOperations.cs - GetPersonalizedFeedAsync içinde
+var mutedUserIds = await _context.Mutes
+    .AsNoTracking()
+    .Where(m => m.UserId == userId)
+    .Select(m => m.MutedUserId)
+    .ToListAsync();
+
+var contents = await _context.Contents
+    .AsNoTracking()
+    .Where(c => !c.IsDeleted && 
+                !mutedUserIds.Contains(c.AuthorId) && // Mute edilenler filtrelenir
+                followingIds.Contains(c.AuthorId))
+    .ToListAsync();
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/saved`
+
+Kullanıcının kaydettiği içerikler.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<ContentDto>>> GetSavedContentsAsync(
+    int userId,
+    int page = 1,
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var currentUserId = _sessionService.GetUserId();
+
+    // Sadece kendi kaydettiklerini görebilir
+    if (userId != currentUserId)
+        return BaseResponse<PagedResponse<ContentDto>>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
+
+    var cacheKey = $"User:{userId}:Saved:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(cached);
+    }
+
+    var query = _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.UserId == userId && i.Type == InteractionType.Save)
+        .Include(i => i.Content)
+            .ThenInclude(c => c.Author)
+        .Include(i => i.Content)
+            .ThenInclude(c => c.Lesson)
+        .Include(i => i.Content)
+            .ThenInclude(c => c.Topic)
+        .Where(i => !i.Content.IsDeleted)
+        .AsQueryable();
+
+    var totalCount = await query.CountAsync();
+    var saves = await query
+        .OrderByDescending(i => i.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = saves.Select(s => MapToContentDto(s.Content)).ToList();
+
+    var response = new PagedResponse<ContentDto>
+    {
+        Data = dtos,
+        Page = page,
+        Limit = limit,
+        TotalCount = totalCount,
+        TotalPages = (int)Math.Ceiling(totalCount / (double)limit)
+    };
+
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(10));
+
+    return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(response);
+}
+```
+
+---
+
+### 5.9. Hashtags & Tags
+
+#### [GET] `/api/social/hashtags/trending`
+
+Trend hashtag'ler (son 7 günde en çok kullanılan).
+
+**Query Parameters:**
+- `limit`: Hashtag sayısı (default: 20)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<HashtagDto>>> GetTrendingHashtagsAsync(int limit = 20)
+{
+    var cacheKey = $"Trending:Hashtags";
+    var cached = await _cacheService.GetAsync<List<HashtagDto>>(cacheKey);
+    if (cached != null)
+        return BaseResponse<List<HashtagDto>>.SuccessResponse(cached);
+
+    // Son 7 gün
+    var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+
+    // Tüm içeriklerden hashtag'leri çıkar ve say
+    var allContents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && c.CreatedAt >= sevenDaysAgo && !string.IsNullOrEmpty(c.TagsJson))
+        .Select(c => c.TagsJson)
+        .ToListAsync();
+
+    // Hashtag'leri parse et ve say
+    var hashtagCounts = new Dictionary<string, int>();
+    foreach (var tagsJson in allContents)
+    {
+        var tags = JsonSerializer.Deserialize<List<string>>(tagsJson) ?? new List<string>();
+        foreach (var tag in tags)
+        {
+            var normalizedTag = tag.ToLower().TrimStart('#');
+            if (!string.IsNullOrEmpty(normalizedTag))
+            {
+                hashtagCounts.TryGetValue(normalizedTag, out var count);
+                hashtagCounts[normalizedTag] = count + 1;
+            }
+        }
+    }
+
+    var trending = hashtagCounts
+        .OrderByDescending(kvp => kvp.Value)
+        .Take(limit)
+        .Select(kvp => new HashtagDto
+        {
+            Tag = kvp.Key,
+            UsageCount = kvp.Value
+        })
+        .ToList();
+
+    await _cacheService.SetAsync(cacheKey, trending, TimeSpan.FromMinutes(30));
+
+    return BaseResponse<List<HashtagDto>>.SuccessResponse(trending);
+}
+```
+
+**Not:** RediSearch kullanıldığında bu çok daha hızlı olacak (FT.AGGREGATE ile).
+
+---
+
+#### [GET] `/api/social/hashtags/{tag}`
+
+Hashtag detayı.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "tag": "matematik",
+    "usageCount": 1250,
+    "contentCount": 450,
+    "trending": true
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<HashtagDetailDto>> GetHashtagDetailAsync(string tag)
+{
+    var normalizedTag = tag.ToLower().TrimStart('#');
+
+    var cacheKey = $"Hashtag:{normalizedTag}:Detail";
+    var cached = await _cacheService.GetAsync<HashtagDetailDto>(cacheKey);
+    if (cached != null)
+        return BaseResponse<HashtagDetailDto>.SuccessResponse(cached);
+
+    // Son 7 günde kullanım sayısı
+    var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+    var recentUsageCount = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && 
+                    c.CreatedAt >= sevenDaysAgo && 
+                    c.TagsJson.ToLower().Contains(normalizedTag))
+        .CountAsync();
+
+    // Toplam içerik sayısı
+    var totalContentCount = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && c.TagsJson.ToLower().Contains(normalizedTag))
+        .CountAsync();
+
+    // Trending mi? (son 7 günde 50+ kullanım)
+    var isTrending = recentUsageCount >= 50;
+
+    var dto = new HashtagDetailDto
+    {
+        Tag = normalizedTag,
+        UsageCount = recentUsageCount,
+        ContentCount = totalContentCount,
+        Trending = isTrending
+    };
+
+    await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(15));
+
+    return BaseResponse<HashtagDetailDto>.SuccessResponse(dto);
+}
+```
+
+---
+
+#### [GET] `/api/social/hashtags/{tag}/contents`
+
+Hashtag'e göre içerikler (zaten `GetContentsByTagAsync` ile aynı).
+
+---
+
+#### [GET] `/api/social/hashtags/search`
+
+Hashtag arama.
+
+**Query Parameters:**
+- `query`: Arama metni
+- `limit`: Sonuç sayısı (default: 10)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<HashtagDto>>> SearchHashtagsAsync(string query, int limit = 10)
+{
+    if (string.IsNullOrWhiteSpace(query))
+        return BaseResponse<List<HashtagDto>>.ErrorResponse("Query required", ErrorCodes.ValidationFailed);
+
+    var queryLower = query.ToLower().Trim();
+
+    // Tüm unique hashtag'leri bul ve filtrele
+    var allTags = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && !string.IsNullOrEmpty(c.TagsJson))
+        .Select(c => c.TagsJson)
+        .ToListAsync();
+
+    var uniqueTags = new HashSet<string>();
+    foreach (var tagsJson in allTags)
+    {
+        var tags = JsonSerializer.Deserialize<List<string>>(tagsJson) ?? new List<string>();
+        foreach (var tag in tags)
+        {
+            var normalizedTag = tag.ToLower().TrimStart('#');
+            if (normalizedTag.Contains(queryLower))
+            {
+                uniqueTags.Add(normalizedTag);
+            }
+        }
+    }
+
+    var results = uniqueTags
+        .Take(limit)
+        .Select(tag => new HashtagDto
+        {
+            Tag = tag,
+            UsageCount = 0 // Detaylı sayım için GetHashtagDetailAsync kullanılabilir
+        })
+        .ToList();
+
+    return BaseResponse<List<HashtagDto>>.SuccessResponse(results);
+}
+```
+
+**Not:** RediSearch kullanıldığında bu çok daha hızlı olacak.
+
+---
+
+### 5.10. Advanced Feed (Gelişmiş Feed)
+
+#### [GET] `/api/social/feed/following`
+
+Sadece takip edilenlerin içerikleri.
+
+**Query Parameters:**
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetFollowingFeedAsync(
+    int page = 1,
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var userId = _sessionService.GetUserId();
+
+    var cacheKey = $"User:{userId}:Feed:Following:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // Takip edilenler
+    var followingIds = await _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowerId == userId)
+        .Select(f => f.FollowingId)
+        .ToListAsync();
+
+    if (!followingIds.Any())
+        return BaseResponse<List<ContentDto>>.SuccessResponse(new List<ContentDto>());
+
+    var contents = await _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted && followingIds.Contains(c.AuthorId))
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .OrderByDescending(c => c.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+
+    var dtos = contents.Select(MapToContentDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(5));
+
+    return BaseResponse<List<ContentDto>>.SuccessResponse(dtos);
+}
+```
+
+---
+
+#### [GET] `/api/social/feed/for-you`
+
+"Senin için" feed (önerilen içerikler - zaten `GetRecommendedContentsAsync` ile aynı).
+
+---
+
+#### [GET] `/api/social/feed/trending`
+
+Trend feed (zaten `GetTrendingContentsAsync` ile aynı).
+
+---
+
+#### [GET] `/api/social/feed/saved`
+
+Kaydedilenler feed (zaten `GetSavedContentsAsync` ile aynı).
+
+---
+
+### 5.11. Search & Discovery (Gelişmiş Arama)
+
+#### [GET] `/api/social/search/contents`
+
+Gelişmiş içerik arama.
+
+**Query Parameters:**
+- `query`: Arama metni
+- `lessonId`: Ders filtresi (opsiyonel)
+- `topicId`: Konu filtresi (opsiyonel)
+- `difficulty`: Zorluk filtresi (opsiyonel)
+- `type`: ContentType filtresi (opsiyonel)
+- `sortBy`: `popular`, `recent`, `trending` (default: popular)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Teknoloji Kullanımı:**
+- **RediSearch**: Full-text search için (eğer aktifse)
+- **EF Core**: RediSearch yoksa fallback
+- **CacheService**: Arama sonuçları cache'lenir
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<ContentDto>>> SearchContentsAsync(
+    string? query,
+    int? lessonId,
+    int? topicId,
+    DifficultyLevel? difficulty,
+    ContentType? type,
+    string sortBy = "popular",
+    int page = 1,
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    // Cache key oluştur
+    var cacheKey = $"Search:Contents:Q{query}:L{lessonId}:T{topicId}:D{difficulty}:Type{type}:Sort{sortBy}:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(cached);
+    }
+
+    // RediSearch kullan (eğer aktifse)
+    if (_redisSearchHelper != null && !string.IsNullOrEmpty(query))
+    {
+        var contentIds = await _redisSearchHelper.SearchContentIdsAsync(
+            query, lessonId, topicId, difficulty, type, sortBy, page, limit);
+        
+        if (contentIds != null && contentIds.Any())
+        {
+            // Redis'ten gelen ID'lerle DB'den detaylı bilgileri çek
+            var contents = await _context.Contents
+                .AsNoTracking()
+                .Where(c => contentIds.Contains(c.Id) && !c.IsDeleted)
+                .Include(c => c.Author)
+                .Include(c => c.Lesson)
+                .Include(c => c.Topic)
+                .ToListAsync();
+            
+            // RediSearch'ün döndürdüğü sırayı koru
+            var orderedContents = contentIds
+                .Select(id => contents.FirstOrDefault(c => c.Id == id))
+                .Where(c => c != null)
+                .Select(MapToContentDto)
+                .ToList();
+            
+            var pagedResponse = new PagedResponse<ContentDto>
+            {
+                Items = orderedContents,
+                TotalCount = await _context.Contents
+                    .AsNoTracking()
+                    .Where(c => !c.IsDeleted && 
+                        (string.IsNullOrEmpty(query) || c.Title.Contains(query) || c.Description.Contains(query)) &&
+                        (!lessonId.HasValue || c.LessonId == lessonId) &&
+                        (!topicId.HasValue || c.TopicId == topicId) &&
+                        (!difficulty.HasValue || c.Difficulty == difficulty) &&
+                        (!type.HasValue || c.Type == type))
+                    .CountAsync(),
+                Page = page,
+                PageSize = limit,
+                TotalPages = (int)Math.Ceiling((double)totalCount / limit)
+            };
+            
+            await _cacheService.SetAsync(cacheKey, pagedResponse, TimeSpan.FromMinutes(5));
+            return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(pagedResponse);
+        }
+    }
+    
+    // Fallback: EF Core ile arama (RediSearch yoksa veya query boşsa)
+    var queryable = _context.Contents
+        .AsNoTracking()
+        .Where(c => !c.IsDeleted)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .AsQueryable();
+    
+    // Filtreler
+    if (!string.IsNullOrEmpty(query))
+    {
+        queryable = queryable.Where(c => 
+            c.Title.Contains(query) || 
+            c.Description.Contains(query) ||
+            c.TagsJson.Contains(query));
+    }
+    
+    if (lessonId.HasValue)
+        queryable = queryable.Where(c => c.LessonId == lessonId);
+    
+    if (topicId.HasValue)
+        queryable = queryable.Where(c => c.TopicId == topicId);
+    
+    if (difficulty.HasValue)
+        queryable = queryable.Where(c => c.Difficulty == difficulty);
+    
+    if (type.HasValue)
+        queryable = queryable.Where(c => c.Type == type);
+    
+    // Sıralama
+    queryable = sortBy switch
+    {
+        "recent" => queryable.OrderByDescending(c => c.CreatedAt),
+        "trending" => queryable.OrderByDescending(c => 
+            c.LikeCount * 2 + c.CommentCount * 3 + 
+            (DateTime.UtcNow - c.CreatedAt).TotalHours < 24 ? 10 : 0),
+        _ => queryable.OrderByDescending(c => c.LikeCount + c.CommentCount * 2)
+    };
+    
+    var totalCount = await queryable.CountAsync();
+    
+    var contentsList = await queryable
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+    
+    var dtos = contentsList.Select(MapToContentDto).ToList();
+    
+    var response = new PagedResponse<ContentDto>
+    {
+        Items = dtos,
+        TotalCount = totalCount,
+        Page = page,
+        PageSize = limit,
+        TotalPages = (int)Math.Ceiling((double)totalCount / limit)
+    };
+    
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
+    return BaseResponse<PagedResponse<ContentDto>>.SuccessResponse(response);
+}
+```
+
+**Cache Invalidation:**
+- Content oluşturulduğunda/güncellendiğinde/silindiğinde: `InvalidateContentCacheAsync` çağrılır
+- Arama sonuçları cache'i: `Search:Contents:*` pattern'i ile temizlenir
+
+**Teknoloji Kullanımı:**
+- **RediSearch**: Full-text search için (eğer aktifse) - 50-100x daha hızlı
+- **EF Core**: Fallback olarak kullanılır (RediSearch yoksa veya query boşsa)
+- **CacheService**: Arama sonuçları 5 dakika cache'lenir
+- **AsNoTracking()**: Read-only query'ler için performans optimizasyonu
+
+**Hangfire Job (Opsiyonel):**
+- Content indexing job: Yeni içerikler RediSearch'e index'lenir (arka planda)
+
+---
+
+### 5.12. Content Analytics & Insights (İçerik Analitiği)
+
+#### [GET] `/api/social/content/{id}/analytics`
+
+İçerik analitiği (sadece içerik sahibi veya admin).
+
+**Query Parameters:**
+- `period`: `day`, `week`, `month`, `all` (default: week)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "contentId": 123,
+    "views": 1250,
+    "likes": 45,
+    "comments": 12,
+    "saves": 8,
+    "shares": 3,
+    "engagementRate": 5.44,
+    "viewsByDay": [
+      { "date": "2024-01-15", "views": 120 },
+      { "date": "2024-01-16", "views": 150 }
+    ],
+    "topEngagers": [
+      { "userId": 5, "username": "user5", "interactions": 8 }
+    ]
+  },
+  "error": null,
+  "errorCode": null
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<ContentAnalyticsDto>> GetContentAnalyticsAsync(
+    int contentId,
+    int userId,
+    string period = "week")
+{
+    var content = await _context.Contents
+        .AsNoTracking()
+        .FirstOrDefaultAsync(c => c.Id == contentId);
+    
+    if (content == null)
+        return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
+            "Content not found", ErrorCodes.NotFound);
+    
+    // Yetki kontrolü
+    if (content.AuthorId != userId && !await IsAdminAsync(userId))
+        return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
+            "Unauthorized", ErrorCodes.Unauthorized);
+    
+    var cacheKey = $"Content:Analytics:{contentId}:{period}";
+    var cached = await _cacheService.GetAsync<ContentAnalyticsDto>(cacheKey);
+    if (cached != null)
+        return BaseResponse<ContentAnalyticsDto>.SuccessResponse(cached);
+    
+    var startDate = period switch
+    {
+        "day" => DateTime.UtcNow.AddDays(-1),
+        "week" => DateTime.UtcNow.AddDays(-7),
+        "month" => DateTime.UtcNow.AddDays(-30),
+        _ => DateTime.MinValue
+    };
+    
+    var views = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.Type == InteractionType.View &&
+                   i.CreatedAt >= startDate)
+        .CountAsync();
+    
+    var likes = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.Type == InteractionType.Like &&
+                   i.CreatedAt >= startDate)
+        .CountAsync();
+    
+    var comments = await _context.Comments
+        .AsNoTracking()
+        .Where(c => c.ContentId == contentId && 
+                   !c.IsDeleted &&
+                   c.CreatedAt >= startDate)
+        .CountAsync();
+    
+    var saves = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.Type == InteractionType.Save &&
+                   i.CreatedAt >= startDate)
+        .CountAsync();
+    
+    var shares = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.Type == InteractionType.Share &&
+                   i.CreatedAt >= startDate)
+        .CountAsync();
+    
+    var engagementRate = views > 0 
+        ? ((likes + comments + saves + shares) / (double)views) * 100 
+        : 0;
+    
+    // Günlük görüntülenme istatistikleri
+    var viewsByDay = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.Type == InteractionType.View &&
+                   i.CreatedAt >= startDate)
+        .GroupBy(i => i.CreatedAt.Date)
+        .Select(g => new { Date = g.Key, Views = g.Count() })
+        .OrderBy(x => x.Date)
+        .ToListAsync();
+    
+    // En çok etkileşimde bulunan kullanıcılar
+    var topEngagers = await _context.Interactions
+        .AsNoTracking()
+        .Where(i => i.ContentId == contentId && 
+                   i.CreatedAt >= startDate)
+        .GroupBy(i => i.UserId)
+        .Select(g => new { 
+            UserId = g.Key, 
+            Interactions = g.Count() 
+        })
+        .OrderByDescending(x => x.Interactions)
+        .Take(10)
+        .Join(_context.Users,
+            e => e.UserId,
+            u => u.Id,
+            (e, u) => new { 
+                UserId = u.Id, 
+                Username = u.Username, 
+                Interactions = e.Interactions 
+            })
+        .ToListAsync();
+    
+    var analytics = new ContentAnalyticsDto
+    {
+        ContentId = contentId,
+        Views = views,
+        Likes = likes,
+        Comments = comments,
+        Saves = saves,
+        Shares = shares,
+        EngagementRate = Math.Round(engagementRate, 2),
+        ViewsByDay = viewsByDay.Select(v => new DailyViewDto
+        {
+            Date = v.Date.ToString("yyyy-MM-dd"),
+            Views = v.Views
+        }).ToList(),
+        TopEngagers = topEngagers.Select(e => new TopEngagerDto
+        {
+            UserId = e.UserId,
+            Username = e.Username,
+            Interactions = e.Interactions
+        }).ToList()
+    };
+    
+    await _cacheService.SetAsync(cacheKey, analytics, TimeSpan.FromMinutes(10));
+    return BaseResponse<ContentAnalyticsDto>.SuccessResponse(analytics);
+}
+```
+
+**Cache Invalidation:**
+- Yeni interaction oluşturulduğunda: `InvalidateContentAnalyticsCacheAsync(contentId)` çağrılır
+
+**Teknoloji Kullanımı:**
+- **EF Core**: Aggregation queries (Count, GroupBy)
+- **CacheService**: Analytics verileri 10 dakika cache'lenir
+- **AsNoTracking()**: Read-only query'ler için performans optimizasyonu
+
+---
+
+### 5.13. Content Moderation (İçerik Moderasyonu)
+
+#### [POST] `/api/social/content/{id}/report`
+
+İçeriği şikayet et.
+
+**Request:**
+
+```json
+{
+  "reason": "spam",
+  "description": "Spam içerik"
+}
+```
+
+**Report Reasons:**
+- `spam`: Spam içerik
+- `inappropriate`: Uygunsuz içerik
+- `harassment`: Taciz
+- `copyright`: Telif hakkı ihlali
+- `other`: Diğer
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> ReportContentAsync(
+    int contentId,
+    int userId,
+    ReportContentRequest request)
+{
+    var content = await _context.Contents
+        .FirstOrDefaultAsync(c => c.Id == contentId);
+    
+    if (content == null)
+        return BaseResponse<string>.ErrorResponse(
+            "Content not found", ErrorCodes.NotFound);
+    
+    // Aynı kullanıcı aynı içeriği birden fazla kez şikayet edemez
+    var existingReport = await _context.ContentReports
+        .FirstOrDefaultAsync(r => r.ContentId == contentId && r.UserId == userId);
+    
+    if (existingReport != null)
+        return BaseResponse<string>.ErrorResponse(
+            "You have already reported this content", ErrorCodes.ValidationFailed);
+    
+    var report = new ContentReport
+    {
+        ContentId = contentId,
+        UserId = userId,
+        Reason = request.Reason,
+        Description = request.Description,
+        Status = ReportStatus.Pending,
+        CreatedAt = DateTime.UtcNow
+    };
+    
+    _context.ContentReports.Add(report);
+    await _context.SaveChangesAsync();
+    
+    // Audit log
+    await _auditService.LogAsync(userId, "ContentReported", 
+        $"Content {contentId} reported: {request.Reason}");
+    
+    // Admin'lere bildirim gönder (Hangfire job ile)
+    BackgroundJob.Enqueue<NotificationJob>(job => 
+        job.NotifyAdminsAboutReportAsync(contentId, userId, request.Reason));
+    
+    return BaseResponse<string>.SuccessResponse("Content reported successfully");
+}
+```
+
+**Model:**
+
+```csharp
+public class ContentReport
+{
+    public int Id { get; set; }
+    public int ContentId { get; set; }
+    public Content Content { get; set; }
+    public int UserId { get; set; }
+    public User User { get; set; }
+    public string Reason { get; set; }
+    public string? Description { get; set; }
+    public ReportStatus Status { get; set; } // Pending, Reviewed, Resolved, Rejected
+    public int? ReviewedBy { get; set; }
+    public User? Reviewer { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewNotes { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+#### [GET] `/api/admin/content/reports`
+
+Admin: Tüm şikayetleri listele (pagination, filtreleme).
+
+**Query Parameters:**
+- `status`: `pending`, `reviewed`, `resolved`, `rejected`
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<PagedResponse<ContentReportDto>>> GetContentReportsAsync(
+    int adminId,
+    string? status,
+    int page = 1,
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    // Admin yetkisi kontrolü
+    if (!await IsAdminAsync(adminId))
+        return BaseResponse<PagedResponse<ContentReportDto>>.ErrorResponse(
+            "Unauthorized", ErrorCodes.Unauthorized);
+    
+    var cacheKey = $"Admin:ContentReports:Status{status}:Page{page}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<PagedResponse<ContentReportDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<PagedResponse<ContentReportDto>>.SuccessResponse(cached);
+    }
+    
+    var queryable = _context.ContentReports
+        .AsNoTracking()
+        .Include(r => r.Content)
+        .Include(r => r.User)
+        .Include(r => r.Reviewer)
+        .AsQueryable();
+    
+    if (!string.IsNullOrEmpty(status))
+    {
+        var statusEnum = Enum.Parse<ReportStatus>(status, true);
+        queryable = queryable.Where(r => r.Status == statusEnum);
+    }
+    
+    var totalCount = await queryable.CountAsync();
+    
+    var reports = await queryable
+        .OrderByDescending(r => r.CreatedAt)
+        .Skip((page - 1) * limit)
+        .Take(limit)
+        .ToListAsync();
+    
+    var dtos = reports.Select(MapToContentReportDto).ToList();
+    
+    var response = new PagedResponse<ContentReportDto>
+    {
+        Items = dtos,
+        TotalCount = totalCount,
+        Page = page,
+        PageSize = limit,
+        TotalPages = (int)Math.Ceiling((double)totalCount / limit)
+    };
+    
+    await _cacheService.SetAsync(cacheKey, response, TimeSpan.FromMinutes(5));
+    return BaseResponse<PagedResponse<ContentReportDto>>.SuccessResponse(response);
+}
+```
+
+#### [POST] `/api/admin/content/report/{id}/review`
+
+Admin: Şikayeti incele ve karar ver.
+
+**Request:**
+
+```json
+{
+  "action": "resolve",
+  "notes": "İçerik uygunsuz, silindi"
+}
+```
+
+**Actions:**
+- `resolve`: Şikayet haklı, içerik silindi/gizlendi
+- `reject`: Şikayet haksız, içerik korundu
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> ReviewContentReportAsync(
+    int reportId,
+    int adminId,
+    ReviewReportRequest request)
+{
+    // Admin yetkisi kontrolü
+    if (!await IsAdminAsync(adminId))
+        return BaseResponse<string>.ErrorResponse(
+            "Unauthorized", ErrorCodes.Unauthorized);
+    
+    var report = await _context.ContentReports
+        .Include(r => r.Content)
+        .FirstOrDefaultAsync(r => r.Id == reportId);
+    
+    if (report == null)
+        return BaseResponse<string>.ErrorResponse(
+            "Report not found", ErrorCodes.NotFound);
+    
+    if (report.Status != ReportStatus.Pending)
+        return BaseResponse<string>.ErrorResponse(
+            "Report already reviewed", ErrorCodes.ValidationFailed);
+    
+    report.Status = request.Action == "resolve" 
+        ? ReportStatus.Resolved 
+        : ReportStatus.Rejected;
+    report.ReviewedBy = adminId;
+    report.ReviewedAt = DateTime.UtcNow;
+    report.ReviewNotes = request.Notes;
+    
+    if (request.Action == "resolve")
+    {
+        // İçeriği sil veya gizle
+        report.Content.IsDeleted = true;
+        report.Content.DeletedAt = DateTime.UtcNow;
+        
+        // İçerik sahibine bildirim gönder
+        await _notificationService.SendAsync(
+            report.Content.AuthorId,
+            "ContentRemoved",
+            "Your content was removed due to a report",
+            $"/content/{report.ContentId}");
+    }
+    
+    await _context.SaveChangesAsync();
+    
+    // Cache invalidation
+    await _cacheService.InvalidateContentCacheAsync(report.ContentId);
+    await _cacheService.InvalidateAdminCacheAsync();
+    
+    // Audit log
+    await _auditService.LogAsync(adminId, "ContentReportReviewed", 
+        $"Report {reportId} reviewed: {request.Action}");
+    
+    return BaseResponse<string>.SuccessResponse("Report reviewed successfully");
+}
+```
+
+**Cache Invalidation:**
+- Report oluşturulduğunda: Admin cache'i temizlenir
+- Report review edildiğinde: Content cache'i ve admin cache'i temizlenir
+
+**Teknoloji Kullanımı:**
+- **EF Core**: Include ile ilişkili veriler çekilir
+- **CacheService**: Report listesi 5 dakika cache'lenir
+- **Hangfire**: Admin bildirimleri arka planda gönderilir
+- **AuditService**: Tüm moderasyon işlemleri loglanır
+
+---
+
+### 5.14. Content Recommendations (İçerik Önerileri)
+
+#### [GET] `/api/social/recommendations`
+
+Kişiselleştirilmiş içerik önerileri.
+
+**Query Parameters:**
+- `limit`: Öneri sayısı (default: 20)
+- `forceRefresh`: Cache bypass (default: false)
+
+**Teknoloji Kullanımı:**
+- **FeedService**: Recommendation algoritması kullanılır
+- **CacheService**: Öneriler 15 dakika cache'lenir
+- **Hangfire**: Günlük recommendation job'ı çalışır
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<ContentDto>>> GetRecommendationsAsync(
+    int userId,
+    int limit = 20,
+    bool forceRefresh = false)
+{
+    var cacheKey = $"User:Recommendations:{userId}:Limit{limit}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<ContentDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<ContentDto>>.SuccessResponse(cached);
+    }
+    
+    // FeedService kullanarak önerileri al
+    var recommendations = await _feedService.GetRecommendationsAsync(userId, limit);
+    
+    await _cacheService.SetAsync(cacheKey, recommendations, TimeSpan.FromMinutes(15));
+    return BaseResponse<List<ContentDto>>.SuccessResponse(recommendations);
+}
+```
+
+**Recommendation Algoritması (FeedService):**
+- Kullanıcının beğendiği içeriklerin ders/konu analizi
+- Takip ettiği kullanıcıların paylaştığı içerikler
+- Trend içerikler (son 24 saatte popüler olanlar)
+- Benzer kullanıcıların beğendiği içerikler (collaborative filtering)
+
+---
+
+### 5.15. Content Export & Sharing (İçerik Dışa Aktarma ve Paylaşma)
+
+#### [GET] `/api/social/content/{id}/share-link`
+
+İçerik paylaşım linki oluştur.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "shareLink": "https://karneapp.com/share/content/123?token=abc123",
+    "expiresAt": "2024-01-20T12:00:00Z"
+  },
+  "error": null,
+  "errorCode": null
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<ShareLinkDto>> GetShareLinkAsync(
+    int contentId,
+    int userId)
+{
+    var content = await _context.Contents
+        .AsNoTracking()
+        .FirstOrDefaultAsync(c => c.Id == contentId);
+    
+    if (content == null)
+        return BaseResponse<ShareLinkDto>.ErrorResponse(
+            "Content not found", ErrorCodes.NotFound);
+    
+    // Paylaşım token'ı oluştur (JWT benzeri)
+    var token = GenerateShareToken(contentId, userId);
+    
+    var shareLink = new ShareLinkDto
+    {
+        ShareLink = $"https://karneapp.com/share/content/{contentId}?token={token}",
+        ExpiresAt = DateTime.UtcNow.AddDays(30) // 30 gün geçerli
+    };
+    
+    return BaseResponse<ShareLinkDto>.SuccessResponse(shareLink);
+}
+```
+
+#### [GET] `/api/social/share/content/{id}`
+
+Paylaşım linki ile içerik görüntüleme (public endpoint, token gerekli).
+
+**Query Parameters:**
+- `token`: Paylaşım token'ı
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<ContentDto>> GetSharedContentAsync(
+    int contentId,
+    string token)
+{
+    // Token doğrulama
+    if (!ValidateShareToken(token, contentId))
+        return BaseResponse<ContentDto>.ErrorResponse(
+            "Invalid or expired share token", ErrorCodes.Unauthorized);
+    
+    var content = await _context.Contents
+        .AsNoTracking()
+        .Where(c => c.Id == contentId && !c.IsDeleted)
+        .Include(c => c.Author)
+        .Include(c => c.Lesson)
+        .Include(c => c.Topic)
+        .FirstOrDefaultAsync();
+    
+    if (content == null)
+        return BaseResponse<ContentDto>.ErrorResponse(
+            "Content not found", ErrorCodes.NotFound);
+    
+    var dto = MapToContentDto(content);
+    return BaseResponse<ContentDto>.SuccessResponse(dto);
+}
+```
+
+**Teknoloji Kullanımı:**
+- **JWT Token**: Paylaşım token'ı oluşturma ve doğrulama
+- **CacheService**: Paylaşım linkleri cache'lenir (30 dakika)
+
+---
+
+### 5.16. Stories (24 Saatlik İçerik)
+
+Stories, 24 saat sonra otomatik olarak silinen geçici içeriklerdir.
+
+#### [Model] Story
+
+```csharp
+public class Story
+{
+    public int Id { get; set; }
+    public int AuthorId { get; set; }
+    public User Author { get; set; }
+    
+    public string? ImageUrl { get; set; } // Görsel story
+    public string? VideoUrl { get; set; } // Video story
+    public string? Text { get; set; } // Metin story
+    
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; } // CreatedAt + 24 saat
+    
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
+    
+    // İstatistikler
+    public int ViewsCount { get; set; } = 0;
+    public int ReactionsCount { get; set; } = 0;
+}
+```
+
+#### [POST] `/api/social/story/create`
+
+Story oluştur.
+
+**Request:**
+
+```json
+{
+  "imageUrl": "https://cdn.../story.jpg",
+  "text": "Bugün çok güzel bir gün! 📚"
+}
+```
+
+**Validation:**
+- `imageUrl` veya `videoUrl` veya `text` en az biri olmalı
+- `text` max 200 karakter
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<StoryDto>> CreateStoryAsync(CreateStoryRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    // Validation
+    if (string.IsNullOrEmpty(request.ImageUrl) && 
+        string.IsNullOrEmpty(request.VideoUrl) && 
+        string.IsNullOrEmpty(request.Text))
+    {
+        return BaseResponse<StoryDto>.ErrorResponse(
+            "At least one of imageUrl, videoUrl, or text is required", 
+            ErrorCodes.ValidationFailed);
+    }
+
+    if (!string.IsNullOrEmpty(request.Text) && request.Text.Length > 200)
+    {
+        return BaseResponse<StoryDto>.ErrorResponse(
+            "Text cannot exceed 200 characters", 
+            ErrorCodes.ValidationFailed);
+    }
+
+    var story = new Story
+    {
+        AuthorId = userId,
+        ImageUrl = request.ImageUrl,
+        VideoUrl = request.VideoUrl,
+        Text = request.Text,
+        CreatedAt = DateTime.UtcNow,
+        ExpiresAt = DateTime.UtcNow.AddHours(24) // 24 saat sonra expire
+    };
+
+    _context.Stories.Add(story);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Stories:*");
+    await _cacheService.RemoveByPatternAsync($"Stories:Following:*");
+    await _cacheService.RemoveByPatternAsync($"Stories:Active:*");
+
+    // SignalR: Takipçilere bildirim
+    var followers = await _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowingId == userId)
+        .Select(f => f.FollowerId)
+        .ToListAsync();
+
+    foreach (var followerId in followers)
+    {
+        await _notificationHub.Clients.Group($"User_{followerId}")
+            .SendAsync("NewStory", new { AuthorId = userId, StoryId = story.Id });
+    }
+
+    await _auditService.LogAsync(userId, "StoryCreated", 
+        JsonSerializer.Serialize(new { StoryId = story.Id }));
+
+    var dto = MapToStoryDto(story);
+    return BaseResponse<StoryDto>.SuccessResponse(dto);
+}
+```
+
+---
+
+#### [GET] `/api/social/stories`
+
+Aktif story'leri listele (takip edilenler ve kendi story'lerim).
+
+**Query Parameters:**
+- `forceRefresh`: Cache bypass (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "authorId": 123,
+      "authorName": "Ahmet Yılmaz",
+      "authorImageUrl": "https://cdn.../avatar.jpg",
+      "stories": [
+        {
+          "id": 456,
+          "imageUrl": "https://cdn.../story.jpg",
+          "text": "Bugün çok güzel bir gün!",
+          "createdAt": "2024-01-15T10:00:00Z",
+          "expiresAt": "2024-01-16T10:00:00Z",
+          "viewsCount": 45,
+          "isViewed": false
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<StoryGroupDto>>> GetStoriesAsync(bool forceRefresh = false)
+{
+    var userId = _sessionService.GetUserId();
+
+    var cacheKey = $"User:{userId}:Stories:Following";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<StoryGroupDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<StoryGroupDto>>.SuccessResponse(cached);
+    }
+
+    // Takip edilenler + kendi story'lerim
+    var followingIds = await _context.Follows
+        .AsNoTracking()
+        .Where(f => f.FollowerId == userId)
+        .Select(f => f.FollowingId)
+        .ToListAsync();
+
+    followingIds.Add(userId); // Kendi story'lerimizi de ekle
+
+    // Aktif story'ler (expire olmamış)
+    var now = DateTime.UtcNow;
+    var activeStories = await _context.Stories
+        .AsNoTracking()
+        .Where(s => followingIds.Contains(s.AuthorId) && 
+                   !s.IsDeleted &&
+                   s.ExpiresAt > now)
+        .Include(s => s.Author)
+        .OrderByDescending(s => s.CreatedAt)
+        .ToListAsync();
+
+    // Author'a göre grupla
+    var storyGroups = activeStories
+        .GroupBy(s => s.AuthorId)
+        .Select(g => new StoryGroupDto
+        {
+            AuthorId = g.Key,
+            AuthorName = g.First().Author.FullName,
+            AuthorImageUrl = g.First().Author.ProfileImageUrl,
+            Stories = g.Select(s => MapToStoryDto(s)).ToList()
+        })
+        .OrderByDescending(g => g.Stories.Max(s => s.CreatedAt))
+        .ToList();
+
+    await _cacheService.SetAsync(cacheKey, storyGroups, TimeSpan.FromMinutes(1)); // Çok dinamik, 1 dakika cache
+
+    return BaseResponse<List<StoryGroupDto>>.SuccessResponse(storyGroups);
+}
+```
+
+---
+
+#### [GET] `/api/social/user/{userId}/stories`
+
+Kullanıcının story'lerini listele.
+
+**Query Parameters:**
+- `forceRefresh`: Cache bypass (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<List<StoryDto>>> GetUserStoriesAsync(
+    int userId,
+    bool forceRefresh = false)
+{
+    var currentUserId = _sessionService.GetUserId();
+
+    // Privacy kontrolü: Sadece kendi story'lerimizi veya takip ettiğimiz kullanıcıların story'lerini görebiliriz
+    if (userId != currentUserId)
+    {
+        var isFollowing = await _context.Follows
+            .AsNoTracking()
+            .AnyAsync(f => f.FollowerId == currentUserId && f.FollowingId == userId);
+
+        if (!isFollowing)
+        {
+            return BaseResponse<List<StoryDto>>.ErrorResponse(
+                "You must follow this user to view their stories", 
+                ErrorCodes.AccessDenied);
+        }
+    }
+
+    var cacheKey = $"User:{userId}:Stories";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<List<StoryDto>>(cacheKey);
+        if (cached != null)
+            return BaseResponse<List<StoryDto>>.SuccessResponse(cached);
+    }
+
+    var now = DateTime.UtcNow;
+    var stories = await _context.Stories
+        .AsNoTracking()
+        .Where(s => s.AuthorId == userId && 
+                   !s.IsDeleted &&
+                   s.ExpiresAt > now)
+        .OrderByDescending(s => s.CreatedAt)
+        .ToListAsync();
+
+    var dtos = stories.Select(MapToStoryDto).ToList();
+
+    await _cacheService.SetAsync(cacheKey, dtos, TimeSpan.FromMinutes(1));
+
+    return BaseResponse<List<StoryDto>>.SuccessResponse(dtos);
+}
+```
+
+---
+
+#### [GET] `/api/social/story/{id}`
+
+Story detayı.
+
+**Query Parameters:**
+- `markAsViewed`: Story'yi görüntülendi olarak işaretle (default: true)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<StoryDto>> GetStoryByIdAsync(
+    int storyId,
+    bool markAsViewed = true)
+{
+    var userId = _sessionService.GetUserId();
+
+    var story = await _context.Stories
+        .AsNoTracking()
+        .Include(s => s.Author)
+        .FirstOrDefaultAsync(s => s.Id == storyId && !s.IsDeleted);
+
+    if (story == null)
+        return BaseResponse<StoryDto>.ErrorResponse("Story not found", ErrorCodes.NotFound);
+
+    // Expire kontrolü
+    if (story.ExpiresAt <= DateTime.UtcNow)
+        return BaseResponse<StoryDto>.ErrorResponse("Story has expired", ErrorCodes.NotFound);
+
+    // Privacy kontrolü
+    if (story.AuthorId != userId)
+    {
+        var isFollowing = await _context.Follows
+            .AsNoTracking()
+            .AnyAsync(f => f.FollowerId == userId && f.FollowingId == story.AuthorId);
+
+        if (!isFollowing)
+        {
+            return BaseResponse<StoryDto>.ErrorResponse(
+                "You must follow this user to view their stories", 
+                ErrorCodes.AccessDenied);
+        }
+    }
+
+    // View tracking (background job ile yapılabilir)
+    if (markAsViewed)
+    {
+        var existingView = await _context.StoryViews
+            .FirstOrDefaultAsync(v => v.StoryId == storyId && v.UserId == userId);
+
+        if (existingView == null)
+        {
+            var view = new StoryView
+            {
+                StoryId = storyId,
+                UserId = userId,
+                ViewedAt = DateTime.UtcNow
+            };
+            _context.StoryViews.Add(view);
+
+            // Views count'u güncelle (optimistic update)
+            story.ViewsCount++;
+            await _context.SaveChangesAsync();
+
+            // Cache invalidation
+            await _cacheService.RemoveByPatternAsync($"Story:{storyId}:*");
+        }
+    }
+
+    var dto = MapToStoryDto(story);
+    return BaseResponse<StoryDto>.SuccessResponse(dto);
+}
+```
+
+**Yeni Model (StoryView.cs):**
+
+```csharp
+public class StoryView
+{
+    public int Id { get; set; }
+    public int StoryId { get; set; }
+    public Story Story { get; set; }
+    public int UserId { get; set; }
+    public User User { get; set; }
+    public DateTime ViewedAt { get; set; }
+}
+```
+
+---
+
+#### [DELETE] `/api/social/story/{id}`
+
+Story sil (24 saat dolmadan önce manuel silme).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> DeleteStoryAsync(int storyId)
+{
+    var userId = _sessionService.GetUserId();
+
+    var story = await _context.Stories
+        .FirstOrDefaultAsync(s => s.Id == storyId);
+
+    if (story == null)
+        return BaseResponse<bool>.ErrorResponse("Story not found", ErrorCodes.NotFound);
+
+    // Yetki kontrolü
+    if (story.AuthorId != userId)
+        return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.Unauthorized);
+
+    // Soft delete
+    story.IsDeleted = true;
+    story.DeletedAt = DateTime.UtcNow;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"User:{userId}:Stories:*");
+    await _cacheService.RemoveByPatternAsync($"Story:{storyId}:*");
+    await _cacheService.RemoveByPatternAsync($"Stories:*");
+
+    await _auditService.LogAsync(userId, "StoryDeleted", 
+        JsonSerializer.Serialize(new { StoryId = storyId }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+---
+
+#### [POST] `/api/social/story/{id}/reaction`
+
+Story'ye tepki ver (emoji).
+
+**Request:**
+
+```json
+{
+  "reaction": "👍"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<bool>> ReactToStoryAsync(
+    int storyId,
+    ReactToStoryRequest request)
+{
+    var userId = _sessionService.GetUserId();
+
+    var story = await _context.Stories
+        .FirstOrDefaultAsync(s => s.Id == storyId && !s.IsDeleted);
+
+    if (story == null)
+        return BaseResponse<bool>.ErrorResponse("Story not found", ErrorCodes.NotFound);
+
+    // Expire kontrolü
+    if (story.ExpiresAt <= DateTime.UtcNow)
+        return BaseResponse<bool>.ErrorResponse("Story has expired", ErrorCodes.NotFound);
+
+    // Zaten tepki vermiş mi?
+    var existingReaction = await _context.StoryReactions
+        .FirstOrDefaultAsync(r => r.StoryId == storyId && r.UserId == userId);
+
+    if (existingReaction != null)
+    {
+        // Tepkiyi güncelle
+        existingReaction.Reaction = request.Reaction;
+        existingReaction.CreatedAt = DateTime.UtcNow;
+    }
+    else
+    {
+        // Yeni tepki
+        var reaction = new StoryReaction
+        {
+            StoryId = storyId,
+            UserId = userId,
+            Reaction = request.Reaction,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.StoryReactions.Add(reaction);
+
+        // Reactions count'u güncelle
+        story.ReactionsCount++;
+    }
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.RemoveByPatternAsync($"Story:{storyId}:*");
+
+    // SignalR: Story sahibine bildirim
+    await _notificationHub.Clients.Group($"User_{story.AuthorId}")
+        .SendAsync("StoryReaction", new { StoryId = storyId, UserId = userId, Reaction = request.Reaction });
+
+    await _auditService.LogAsync(userId, "StoryReacted", 
+        JsonSerializer.Serialize(new { StoryId = storyId, Reaction = request.Reaction }));
+
+    return BaseResponse<bool>.SuccessResponse(true);
+}
+```
+
+**Yeni Model (StoryReaction.cs):**
+
+```csharp
+public class StoryReaction
+{
+    public int Id { get; set; }
+    public int StoryId { get; set; }
+    public Story Story { get; set; }
+    public int UserId { get; set; }
+    public User User { get; set; }
+    public string Reaction { get; set; } // "👍", "❤️", "😊", vb.
+    public DateTime CreatedAt { get; set; }
+}
+```
+
+---
+
+#### Hangfire Job: CleanupExpiredStoriesJob
+
+24 saat geçen story'leri otomatik olarak silen background job.
+
+**Job Implementation:**
+
+```csharp
+// Jobs/CleanupExpiredStoriesJob.cs
+public class CleanupExpiredStoriesJob
+{
+    private readonly ApplicationContext _context;
+    private readonly ICacheService _cacheService;
+
+    public CleanupExpiredStoriesJob(ApplicationContext context, ICacheService cacheService)
+    {
+        _context = context;
+        _cacheService = cacheService;
+    }
+
+    [AutomaticRetry(Attempts = 3)]
+    public async Task Execute()
+    {
+        var now = DateTime.UtcNow;
+
+        // 24 saat geçen story'leri bul
+        var expiredStories = await _context.Stories
+            .Where(s => !s.IsDeleted && s.ExpiresAt <= now)
+            .ToListAsync();
+
+        if (!expiredStories.Any())
+            return;
+
+        // Soft delete
+        foreach (var story in expiredStories)
+        {
+            story.IsDeleted = true;
+            story.DeletedAt = now;
+        }
+
+        await _context.SaveChangesAsync();
+
+        // Cache invalidation
+        foreach (var story in expiredStories)
+        {
+            await _cacheService.RemoveByPatternAsync($"User:{story.AuthorId}:Stories:*");
+            await _cacheService.RemoveByPatternAsync($"Story:{story.Id}:*");
+        }
+
+        await _cacheService.RemoveByPatternAsync($"Stories:*");
+    }
+}
+```
+
+**Program.cs'de Schedule:**
+
+```csharp
+// Her saat başı çalışır
+RecurringJob.AddOrUpdate<CleanupExpiredStoriesJob>(
+    "cleanup-expired-stories",
+    job => job.Execute(),
+    Cron.Hourly);
+```
+
+**Teknoloji Kullanımı:**
+- **CacheService**: Story listesi 1 dakika cache'lenir (çok dinamik)
+- **SignalR**: Yeni story paylaşıldığında takipçilere bildirim
+- **Hangfire**: Günlük story temizleme job'ı (her saat başı)
+- **AuditService**: Story işlemleri loglanır
+- **AsNoTracking()**: Read-only query'ler için performans
+- **Soft Delete**: Story'ler silinmez, IsDeleted flag'i ile işaretlenir
+
+---
+
+## 📊 Faz 3 Özet: Tamamlanan Özellikler
+
+**Toplam Endpoint Sayısı:** 60+ endpoint
+
+**Kategoriler:**
+1. ✅ Content Management (10 endpoint)
+2. ✅ Feed System (8 endpoint)
+3. ✅ Interactions (6 endpoint)
+4. ✅ Comments (8 endpoint)
+5. ✅ Follow System (6 endpoint)
+6. ✅ User Profile Social (5 endpoint)
+7. ✅ Hashtags & Tags (4 endpoint)
+8. ✅ Advanced Feed (5 endpoint)
+9. ✅ Search & Discovery (3 endpoint)
+10. ✅ Content Analytics (1 endpoint)
+11. ✅ Content Moderation (3 endpoint)
+12. ✅ Content Recommendations (1 endpoint)
+13. ✅ Content Export & Sharing (2 endpoint)
+14. ✅ Mute System (3 endpoint)
+15. ✅ Stories (6 endpoint)
+
+**Teknoloji Kullanımı:**
+- ✅ **Redis Cache**: Tüm GET endpoint'lerde cache kullanımı
+- ✅ **RediSearch**: Full-text search için (opsiyonel, fallback EF Core)
+- ✅ **SignalR**: Real-time like/comment/follow notifications
+- ✅ **Hangfire**: Content indexing, feed generation, recommendation jobs
+- ✅ **CacheService**: Pattern-based invalidation, force refresh
+- ✅ **AuditService**: Tüm CUD işlemlerde loglama
+- ✅ **AsNoTracking()**: Read-only query'ler için performans optimizasyonu
+
+---
+
+## 🔍 5.17. Faz 3 Eksik Özellikler Analizi (Profesyonel Platform Karşılaştırması)
+
+Bu bölüm, mevcut Faz 3 implementasyonunu profesyonel sosyal medya platformları (Twitter, Instagram, Facebook, Reddit, LinkedIn, Pinterest, Discord, Stack Overflow) ile karşılaştırarak belirlenen eksik özellikleri içerir.
+
+**Detaylı analiz için:** `DOC/missing_features_analysis.md` dosyasına bakınız.
+
+### 📊 Özet Tablo
+
+| Özellik | Öncelik | Durum | Endpoint Sayısı | Model Sayısı | Teknoloji |
+|---------|---------|-------|-----------------|--------------|-----------|
+| **Polls** | 🔴 Yüksek | ❌ Eksik | 4 | 2 | Cache, SignalR, Hangfire |
+| **Drafts** | 🔴 Yüksek | ❌ Eksik | 5 | 1 | Cache, AuditService |
+| **Content Pinning** | 🔴 Yüksek | ❌ Eksik | 3 | 0 (Content'e ekleme) | Cache, AuditService |
+| **Multiple Reactions** | 🟡 Orta | ⚠️ Kısmen | 3 | 0 (Interaction'a ekleme) | Cache, SignalR |
+| **Collections** | 🟡 Orta | ❌ Eksik | 6 | 2 | Cache, SignalR, AuditService |
+| **Content Scheduling** | 🟡 Orta | ❌ Eksik | 4 | 1 | Hangfire, Cache, SignalR |
+| **User Verification** | 🟡 Orta | ❌ Eksik | 4 | 1 (+ User'a ekleme) | Cache, AuditService |
+| **Groups/Communities** | 🟢 Düşük | ❌ Eksik | 6 | 2 | Cache, SignalR, AuditService |
+| **Badges/Achievements** | 🟢 Düşük | ❌ Eksik | 5 | 2 | Hangfire, Cache, SignalR |
+| **Content Archiving** | 🟢 Düşük | ❌ Eksik | 3 | 0 (Content'e ekleme) | Cache, AuditService |
+| **User Reputation** | 🟢 Düşük | ❌ Eksik | 2 | 1 (+ User'a ekleme) | Hangfire, Cache |
+| **Content Templates** | 🟢 Düşük | ❌ Eksik | 4 | 1 | Cache, AuditService |
+
+**Toplam:**
+- **Yeni Endpoint:** ~49 endpoint
+- **Yeni Model:** ~15 model
+- **Model Değişikliği:** 3 model (Content, User, Interaction)
+
+### 🎯 Önerilen Uygulama Sırası
+
+#### Faz 3.1 (Hemen Yapılmalı):
+1. ✅ **Polls (Anketler)** - Eğitim platformu için kritik
+   - Model: `Poll`, `PollVote`
+   - Endpoint'ler: Create, Vote, Get Results, Get Stats
+   - Teknoloji: CacheService, SignalR (real-time updates), Hangfire (expired poll cleanup)
+   - Nereye: `SocialOperations.cs`, `SocialController.cs`
+
+2. ✅ **Drafts (Taslaklar)** - Kullanıcı deneyimi için önemli
+   - Model: `ContentDraft`
+   - Endpoint'ler: Create/Update, List, Get, Publish, Delete
+   - Teknoloji: CacheService (10 dakika), AuditService
+   - Nereye: `SocialOperations.cs`, `SocialController.cs`
+
+3. ✅ **Content Pinning (İçerik Sabitleme)** - Standart özellik
+   - Model Değişikliği: `Content.IsPinned`, `Content.PinnedAt`
+   - Endpoint'ler: Pin, Unpin, Get Pinned
+   - Teknoloji: CacheService, AuditService
+   - Nereye: `Content.cs` (yeni property'ler), `SocialOperations.cs`, `SocialController.cs`
+
+#### Faz 3.2 (Orta Vadede):
+4. ✅ **Multiple Reactions (Çoklu Tepkiler)** - Mevcut Like sistemini genişletme
+   - Model Değişikliği: `Interaction.ReactionEmoji`
+   - Endpoint'ler: React, Unreact, Get Reactions
+   - Teknoloji: CacheService, SignalR, AuditService
+   - Nereye: `Interaction.cs` (yeni property), `SocialOperations.cs` (mevcut Like metodları güncellenecek)
+
+5. ✅ **Collections (İçerik Koleksiyonları)** - İçerik organizasyonu
+   - Model: `Collection`, `CollectionContent`
+   - Endpoint'ler: Create, Get, Add Content, Remove Content, List User Collections
+   - Teknoloji: CacheService (15 dakika), SignalR, AuditService
+   - Nereye: Yeni modeller, `SocialOperations.cs`, `SocialController.cs`
+
+6. ✅ **Content Scheduling (Zamanlanmış Paylaşım)** - Öğretmenler için önemli
+   - Model: `ScheduledContent`
+   - Endpoint'ler: Schedule, List Scheduled, Update, Cancel, Publish
+   - Teknoloji: Hangfire (publish job - her dakika), CacheService, SignalR
+   - Nereye: Yeni model, `SocialOperations.cs`, `SocialController.cs`, `Jobs/PublishScheduledContentJob.cs`
+
+7. ✅ **User Verification (Kullanıcı Doğrulama)** - Güvenilirlik
+   - Model: `VerificationRequest`, `User.IsVerified`
+   - Endpoint'ler: Request Verification, Admin: Approve/Reject, List Requests
+   - Teknoloji: CacheService, AuditService, NotificationService
+   - Nereye: Yeni model, `User.cs` (yeni property), `AdminOperations.cs`, `UserOperations.cs`
+
+#### Faz 3.3 (İleride):
+8. ✅ **Groups/Communities (Gruplar/Topluluklar)** - Topluluk özelliği
+   - Model: `Group`, `GroupMember`
+   - Endpoint'ler: Create, Get, Join, Leave, Get Members, Get Contents
+   - Teknoloji: CacheService (15 dakika), SignalR, AuditService
+   - Nereye: Yeni modeller, `SocialOperations.cs` veya yeni `GroupOperations.cs`, `SocialController.cs` veya yeni `GroupController.cs`
+
+9. ✅ **Badges/Achievements (Rozetler/Başarımlar)** - Gamification
+   - Model: `Badge`, `UserBadge`
+   - Endpoint'ler: Get User Badges, List All Badges, Admin: Create Badge, Award Badge
+   - Teknoloji: Hangfire (auto-award job), CacheService (30 dakika), SignalR
+   - Nereye: Yeni modeller, `UserOperations.cs`, `AdminOperations.cs`, `Jobs/AwardBadgesJob.cs`
+
+10. ✅ **Content Archiving (İçerik Arşivleme)** - Kullanıcı deneyimi
+    - Model Değişikliği: `Content.IsArchived`, `Content.ArchivedAt`
+    - Endpoint'ler: Archive, Unarchive, Get Archived
+    - Teknoloji: CacheService, AuditService
+    - Nereye: `Content.cs` (yeni property'ler), `SocialOperations.cs`, `SocialController.cs`
+
+11. ✅ **User Reputation (İtibar Sistemi)** - Topluluk kalitesi
+    - Model: `ReputationHistory`, `User.Reputation`
+    - Endpoint'ler: Get Reputation, Get Reputation History
+    - Teknoloji: Hangfire (calculation job - günlük), CacheService
+    - Nereye: Yeni model, `User.cs` (yeni property), `UserOperations.cs`, `Jobs/CalculateReputationJob.cs`
+
+12. ✅ **Content Templates (İçerik Şablonları)** - Hızlı içerik oluşturma
+    - Model: `ContentTemplate`
+    - Endpoint'ler: Create Template, Get Template, List User Templates, Create Content from Template
+    - Teknoloji: CacheService (30 dakika), AuditService
+    - Nereye: Yeni model, `SocialOperations.cs`, `SocialController.cs`
+
+### 📝 Teknoloji Kullanım Notları
+
+**Tüm yeni özellikler için:**
+- ✅ **CacheService**: Tüm GET endpoint'lerde cache kullanımı (1-30 dakika arası)
+- ✅ **forceRefresh**: Tüm GET endpoint'lerde cache bypass parametresi
+- ✅ **AsNoTracking()**: Tüm read-only query'lerde performans optimizasyonu
+- ✅ **AuditService**: Tüm CUD işlemlerde loglama
+- ✅ **SignalR**: Real-time updates (yeni içerik, yeni üye, vb.)
+- ✅ **Hangfire**: Background jobs (cleanup, calculation, publish)
+- ✅ **BaseResponse<T>**: Standart response formatı
+- ✅ **Pattern-based Cache Invalidation**: Tüm CUD işlemlerde
+
+**Detaylı implementasyon planı için:** `DOC/missing_features_analysis.md` dosyasına bakınız.
+
+---
+
 ## 💰 6. FAZ 4: MARKETPLACE VE ÖDEME SİSTEMİ
 
 Öğretmenler özel ders ilanı verir, öğrenciler arama yapar.
@@ -5589,6 +9614,12 @@ KarneProject/
 │   │   ├── Comment.cs                 [Faz 3]
 │   │   ├── Interaction.cs             [Faz 3]
 │   │   ├── Follow.cs                  [Faz 3]
+│   │   ├── Block.cs                   [Faz 3]
+│   │   ├── Mute.cs                    [Faz 3]
+│   │   ├── Story.cs                   [Faz 3]
+│   │   ├── StoryView.cs               [Faz 3]
+│   │   ├── StoryReaction.cs           [Faz 3]
+│   │   ├── ContentReport.cs           [Faz 3]
 │   │   ├── PrivateLessonAd.cs         [Faz 4]
 │   │   ├── City.cs                    [Faz 4]
 │   │   ├── District.cs                [Faz 4]
@@ -5979,6 +10010,7 @@ public class CalculateRankingsJob
 - Feed generation job (günlük)
 - Content indexing job (RediSearch için)
 - Cache invalidation job (günlük temizlik)
+- ✅ CleanupExpiredStoriesJob (her saat başı - story temizleme)
 
 #### **JSON Serialization**
 
