@@ -26,4 +26,6 @@ public class Message
     public string? AttachmentUrl { get; set; }
 
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public bool IsDeleted { get; set; } = false;
+    public DateTime? DeletedAt { get; set; }
 }

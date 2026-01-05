@@ -15,6 +15,12 @@ public class ApplicationContext : DbContext
     public DbSet<InstitutionUser> InstitutionUsers { get; set; }
     public DbSet<AccountLink> AccountLinks { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
+    
+    // Authentication & Security
+    public DbSet<RefreshToken> RefreshTokens { get; set; }
+    public DbSet<EmailVerification> EmailVerifications { get; set; }
+    public DbSet<PasswordResetToken> PasswordResetTokens { get; set; }
+    public DbSet<UserPreferences> UserPreferences { get; set; }
 
     // DbSets for Phase 2
     public DbSet<Classroom> Classrooms { get; set; }
@@ -149,6 +155,7 @@ public class ApplicationContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => new { e.ClassroomId, e.StudentId }).IsUnique();
+            entity.HasIndex(e => e.RemovedAt); // For soft delete queries
             entity.HasOne(e => e.Classroom)
                 .WithMany(c => c.Students)
                 .HasForeignKey(e => e.ClassroomId)
@@ -243,6 +250,11 @@ public class ApplicationContext : DbContext
         {
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Type).HasConversion<byte>();
+            entity.Property(e => e.Content).HasMaxLength(5000).IsRequired();
+            entity.Property(e => e.AttachmentUrl).HasMaxLength(500);
+            entity.HasIndex(e => e.ConversationId);
+            entity.HasIndex(e => e.SenderId);
+            entity.HasIndex(e => e.SentAt);
             entity.HasOne(e => e.Conversation)
                 .WithMany(c => c.Messages)
                 .HasForeignKey(e => e.ConversationId)
@@ -251,6 +263,62 @@ public class ApplicationContext : DbContext
                 .WithMany()
                 .HasForeignKey(e => e.SenderId)
                 .OnDelete(DeleteBehavior.NoAction);
+        });
+
+        // Authentication & Security Configurations
+        modelBuilder.Entity<RefreshToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.Property(e => e.Token).HasMaxLength(500).IsRequired();
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EmailVerification>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.Property(e => e.Token).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.Email).HasMaxLength(100).IsRequired();
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PasswordResetToken>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Token).IsUnique();
+            entity.HasIndex(e => e.UserId);
+            entity.Property(e => e.Token).HasMaxLength(100).IsRequired();
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // UserPreferences Configuration
+        modelBuilder.Entity<UserPreferences>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.UserId).IsUnique();
+            entity.Property(e => e.Theme).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.Language).HasMaxLength(10).IsRequired();
+            entity.Property(e => e.DateFormat).HasMaxLength(20).IsRequired();
+            entity.Property(e => e.TimeFormat).HasMaxLength(10).IsRequired();
+            entity.Property(e => e.ProfileLayout).HasMaxLength(2000);
+            entity.Property(e => e.DashboardLayout).HasMaxLength(2000);
+            entity.Property(e => e.VisibleWidgets).HasMaxLength(1000);
+            entity.HasOne(e => e.User)
+                .WithOne()
+                .HasForeignKey<UserPreferences>(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

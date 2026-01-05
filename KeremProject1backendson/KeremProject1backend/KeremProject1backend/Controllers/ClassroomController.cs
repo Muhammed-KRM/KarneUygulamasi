@@ -27,9 +27,9 @@ public class ClassroomController : BaseController
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetDetails(int id)
+    public async Task<IActionResult> GetDetails(int id, [FromQuery] bool forceRefresh = false)
     {
-        var result = await _classroomOperations.GetClassroomDetailsAsync(id);
+        var result = await _classroomOperations.GetClassroomDetailsAsync(id, forceRefresh);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
@@ -51,13 +51,53 @@ public class ClassroomController : BaseController
     }
 
     [HttpGet("institution/{institutionId}")]
-    public async Task<IActionResult> GetClassrooms(int institutionId)
+    public async Task<IActionResult> GetClassrooms(int institutionId, [FromQuery] bool forceRefresh = false)
     {
-        var result = await _classroomOperations.GetClassroomsAsync(institutionId);
+        var result = await _classroomOperations.GetClassroomsAsync(institutionId, forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateClassroom(int id, [FromBody] UpdateClassroomRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _classroomOperations.UpdateClassroomAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteClassroom(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _classroomOperations.DeleteClassroomAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("{classroomId}/student/{studentId}")]
+    public async Task<IActionResult> RemoveStudent(int classroomId, int studentId)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _classroomOperations.RemoveStudentAsync(classroomId, studentId, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{classroomId}/students")]
+    public async Task<IActionResult> GetStudents(
+        int classroomId,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 50,
+        [FromQuery] string? search = null)
+    {
+        var result = await _classroomOperations.GetStudentsAsync(classroomId, page, limit, search);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 }
+
 
 public class CreateClassroomRequest
 {

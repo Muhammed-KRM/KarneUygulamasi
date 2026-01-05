@@ -64,13 +64,16 @@ public class OpticalParserService
             }
 
             float net = correct - (wrong / 4.0f);
+            int successRate = correctAnswers.Length > 0 ? (int)((correct / (float)correctAnswers.Length) * 100) : 0;
 
             results[lessonName] = new LessonScore
             {
                 Correct = correct,
                 Wrong = wrong,
                 Empty = empty,
-                Net = net
+                Net = net,
+                SuccessRate = successRate,
+                TopicScores = new List<TopicScore>() // Topic scores can be calculated separately if needed
             };
         }
 
@@ -96,6 +99,17 @@ public class LessonConfig
 
 public class LessonScore
 {
+    public int Correct { get; set; }
+    public int Wrong { get; set; }
+    public int Empty { get; set; }
+    public float Net { get; set; }
+    public int SuccessRate { get; set; }
+    public List<TopicScore>? TopicScores { get; set; }
+}
+
+public class TopicScore
+{
+    public string TopicName { get; set; } = string.Empty;
     public int Correct { get; set; }
     public int Wrong { get; set; }
     public int Empty { get; set; }

@@ -4,9 +4,13 @@ using Hangfire;
 using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Services;
 using KeremProject1backend.Operations;
+using KeremProject1backend.Middlewares;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using StackExchange.Redis;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,11 +22,19 @@ builder.Services.AddDbContext<ApplicationContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // 2. Redis Cache
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration.GetConnectionString("Redis");
+    options.Configuration = redisConnectionString;
     options.InstanceName = "KarneProject_";
 });
+
+// Redis Connection Multiplexer for advanced operations (pattern matching, etc.)
+if (!string.IsNullOrEmpty(redisConnectionString))
+{
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+        ConnectionMultiplexer.Connect(redisConnectionString));
+}
 
 // 3. Core Services
 builder.Services.AddScoped<SessionService>();
@@ -34,7 +46,13 @@ builder.Services.AddScoped<InstitutionOperations>();
 builder.Services.AddScoped<ClassroomOperations>();
 builder.Services.AddScoped<ExamOperations>();
 builder.Services.AddScoped<MessageOperations>();
-builder.Services.AddScoped<NotificationService>();
+builder.Services.AddScoped<AccountOperations>();
+builder.Services.AddScoped<UserOperations>();
+builder.Services.AddScoped<AdminOperations>();
+
+// Background Jobs
+builder.Services.AddScoped<KeremProject1backend.Jobs.CalculateRankingsJob>();
+builder.Services.AddScoped<KeremProject1backend.Jobs.BulkNotificationJob>();
 
 // 4. Authentication (JWT)
 builder.Services.AddAuthentication(options =>
@@ -81,6 +99,43 @@ builder.Services.AddAuthentication(options =>
 
             return context.Response.WriteAsJsonAsync(response);
         }
+    };
+});
+
+// 4.1. Authorization Policies
+builder.Services.AddAuthorization(options =>
+{
+    // Institution Role Policies (can be used with [Authorize(Policy = "InstitutionRole:Manager,Teacher")])
+    options.AddPolicy("InstitutionRole:Manager", policy => policy.RequireAssertion(context =>
+    {
+        // This will be checked in controllers using SessionService
+        return true; // Actual check done in controller/operation layer
+    }));
+    
+    options.AddPolicy("InstitutionRole:Teacher", policy => policy.RequireAssertion(context => true));
+    options.AddPolicy("InstitutionRole:Student", policy => policy.RequireAssertion(context => true));
+});
+
+// 4.2. Rate Limiting (Very broad limits for high traffic)
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 1000, // 1000 requests
+                Window = TimeSpan.FromMinutes(1) // per minute (very broad)
+            }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            KeremProject1backend.Models.DTOs.BaseResponse<string>.ErrorResponse(
+                "Too many requests. Please try again later.",
+                "100429"), cancellationToken);
     };
 });
 
@@ -158,8 +213,14 @@ app.UseHttpsRedirection();
 
 app.UseCors("AllowAll");
 
+// Middleware Pipeline (Order matters!)
+app.UseMiddleware<RequestLoggingMiddleware>(); // Log requests first
+app.UseMiddleware<TokenBlacklistMiddleware>(); // Check token blacklist
+app.UseMiddleware<GlobalExceptionMiddleware>(); // Catch exceptions
+
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter(); // Rate limiting middleware
 
 app.UseHangfireDashboard();
 

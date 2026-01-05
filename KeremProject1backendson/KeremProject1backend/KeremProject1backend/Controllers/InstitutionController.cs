@@ -1,0 +1,108 @@
+using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Requests;
+using KeremProject1backend.Models.Enums;
+using KeremProject1backend.Operations;
+using KeremProject1backend.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace KeremProject1backend.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class InstitutionController : BaseController
+{
+    private readonly InstitutionOperations _institutionOperations;
+    private readonly AdminOperations _adminOperations;
+
+    public InstitutionController(
+        InstitutionOperations institutionOperations,
+        AdminOperations adminOperations,
+        SessionService sessionService) : base(sessionService)
+    {
+        _institutionOperations = institutionOperations;
+        _adminOperations = adminOperations;
+    }
+
+    [HttpGet("my")]
+    public async Task<IActionResult> GetMyInstitutions()
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.GetMyInstitutionsAsync(userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetInstitution(int id, [FromQuery] bool forceRefresh = false)
+    {
+        var result = await _institutionOperations.GetInstitutionAsync(id, GetCurrentUserId(), forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateInstitution(int id, [FromBody] UpdateInstitutionRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.UpdateInstitutionAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}/members")]
+    public async Task<IActionResult> GetMembers(
+        int id,
+        [FromQuery] InstitutionRole? role = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        [FromQuery] string? search = null)
+    {
+        var result = await _institutionOperations.GetMembersAsync(id, role, page, limit, search);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("{id}/add-member")]
+    public async Task<IActionResult> AddMember(int id, [FromBody] AddMemberRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.AddMemberAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id}/member/{memberId}")]
+    public async Task<IActionResult> RemoveMember(int id, int memberId)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.RemoveMemberAsync(id, memberId, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}/member/{memberId}/role")]
+    public async Task<IActionResult> UpdateMemberRole(int id, int memberId, [FromBody] UpdateMemberRoleRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.UpdateMemberRoleAsync(id, memberId, request.Role, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}/statistics")]
+    public async Task<IActionResult> GetStatistics(int id, [FromQuery] bool forceRefresh = false)
+    {
+        var result = await _institutionOperations.GetStatisticsAsync(id, GetCurrentUserId(), forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+}
+
+
+public class UpdateMemberRoleRequest
+{
+    public InstitutionRole Role { get; set; }
+}
+

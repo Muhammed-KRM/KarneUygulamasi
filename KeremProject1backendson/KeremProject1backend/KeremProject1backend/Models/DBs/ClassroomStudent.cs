@@ -13,4 +13,5 @@ public class ClassroomStudent
     public required InstitutionUser Student { get; set; }
 
     public DateTime AssignedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? RemovedAt { get; set; }
 }

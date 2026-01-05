@@ -962,6 +962,1490 @@ public static async Task<BaseResponse<int>> RequestAccountLinkAsync(
 
 ---
 
+#### [POST] `/api/auth/refresh-token`
+
+JWT token'ı yenileme (Refresh Token kullanarak).
+
+**Request:**
+
+```json
+{
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public static async Task<BaseResponse<LoginResponse>> RefreshTokenAsync(
+    RefreshTokenRequest request,
+    ApplicationContext context)
+{
+    // 1. Refresh token'ı bul ve doğrula
+    var refreshToken = await context.RefreshTokens
+        .Include(rt => rt.User)
+            .ThenInclude(u => u.InstitutionMemberships)
+                .ThenInclude(im => im.Institution)
+        .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken && rt.IsActive);
+
+    if (refreshToken == null || refreshToken.ExpiresAt < DateTime.UtcNow)
+        return BaseResponse<LoginResponse>.Error("Geçersiz veya süresi dolmuş refresh token");
+
+    // 2. Yeni JWT token oluştur
+    var newToken = SessionService.GenerateToken(refreshToken.User, refreshToken.User.InstitutionMemberships.ToList());
+
+    // 3. Yeni refresh token oluştur (eski token'ı devre dışı bırak)
+    refreshToken.IsActive = false;
+    var newRefreshToken = new RefreshToken
+    {
+        UserId = refreshToken.UserId,
+        Token = Guid.NewGuid().ToString(),
+        ExpiresAt = DateTime.UtcNow.AddDays(30),
+        IsActive = true,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    context.RefreshTokens.Add(newRefreshToken);
+    await context.SaveChangesAsync();
+
+    var response = new LoginResponse
+    {
+        Token = newToken,
+        RefreshToken = newRefreshToken.Token,
+        ExpiresAt = DateTime.UtcNow.AddDays(7),
+        User = MapToUserDto(refreshToken.User)
+    };
+
+    return BaseResponse<LoginResponse>.Success(response);
+}
+```
+
+**Frontend Kullanımı:**
+
+1. Token süresi dolduğunda otomatik olarak refresh token ile yeni token al
+2. Yeni token'ı localStorage'a kaydet
+3. İstekleri yeni token ile devam ettir
+
+---
+
+#### [POST] `/api/auth/forgot-password`
+
+Şifre sıfırlama talebi gönderme.
+
+**Request:**
+
+```json
+{
+  "email": "ahmet@example.com"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public static async Task<BaseResponse<string>> ForgotPasswordAsync(
+    ForgotPasswordRequest request,
+    ApplicationContext context)
+{
+    var user = await context.Users.FirstOrDefaultAsync(u => u.Email == request.Email);
+    if (user == null)
+        return BaseResponse<string>.Success("Eğer bu email kayıtlıysa, şifre sıfırlama linki gönderildi"); // Güvenlik için aynı mesaj
+
+    // 1. Token oluştur
+    var token = Guid.NewGuid().ToString();
+    var resetToken = new PasswordResetToken
+    {
+        UserId = user.Id,
+        Token = token,
+        ExpiresAt = DateTime.UtcNow.AddHours(24),
+        IsUsed = false,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    context.PasswordResetTokens.Add(resetToken);
+    await context.SaveChangesAsync();
+
+    // 2. Email gönder (EmailService kullanılmalı)
+    var resetLink = $"https://karneproject.com/reset-password?token={token}";
+    await EmailService.SendPasswordResetEmailAsync(user.Email, resetLink);
+
+    return BaseResponse<string>.Success("Şifre sıfırlama linki email adresinize gönderildi");
+}
+```
+
+---
+
+#### [POST] `/api/auth/reset-password`
+
+Şifre sıfırlama işlemini tamamlama.
+
+**Request:**
+
+```json
+{
+  "token": "guid-token-here",
+  "newPassword": "NewSecurePass123!"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public static async Task<BaseResponse<string>> ResetPasswordAsync(
+    ResetPasswordRequest request,
+    ApplicationContext context)
+{
+    // 1. Token'ı bul ve doğrula
+    var resetToken = await context.PasswordResetTokens
+        .Include(rt => rt.User)
+        .FirstOrDefaultAsync(rt => rt.Token == request.Token && !rt.IsUsed && rt.ExpiresAt > DateTime.UtcNow);
+
+    if (resetToken == null)
+        return BaseResponse<string>.Error("Geçersiz veya süresi dolmuş token");
+
+    // 2. Yeni şifreyi hash'le
+    PasswordHelper.CreateHash(request.NewPassword, out byte[] hash, out byte[] salt);
+
+    // 3. Kullanıcı şifresini güncelle
+    resetToken.User.PasswordHash = hash;
+    resetToken.User.PasswordSalt = salt;
+
+    // 4. Token'ı kullanıldı olarak işaretle
+    resetToken.IsUsed = true;
+    resetToken.UsedAt = DateTime.UtcNow;
+
+    await context.SaveChangesAsync();
+
+    // 5. Audit log
+    await AuditService.LogAsync(resetToken.UserId, "PasswordReset", null);
+
+    return BaseResponse<string>.Success("Şifreniz başarıyla güncellendi");
+}
+```
+
+---
+
+### 3.5. User Profile Management (Kullanıcı Profil Yönetimi)
+
+#### [Model] UserPreferences
+
+Kullanıcının UI tercihlerini saklar.
+
+```csharp
+public class UserPreferences
+{
+    public int Id { get; set; }
+    public int UserId { get; set; }
+    public User User { get; set; }
+
+    // UI Ayarları
+    public string Theme { get; set; } = "light"; // "light", "dark", "auto"
+    public string Language { get; set; } = "tr"; // "tr", "en"
+    public string DateFormat { get; set; } = "dd/MM/yyyy";
+    public string TimeFormat { get; set; } = "24h"; // "12h", "24h"
+
+    // Bildirim Ayarları (JSON)
+    public string NotificationSettingsJson { get; set; } = "{}";
+
+    // Layout Ayarları (JSON)
+    public string ProfileLayoutJson { get; set; } = "{}";
+    public string DashboardLayoutJson { get; set; } = "{}";
+
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+}
+```
+
+#### [GET] `/api/user/profile`
+
+Kullanıcının kendi profil bilgilerini getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 105,
+    "fullName": "Ahmet Yılmaz",
+    "username": "ahmet123",
+    "email": "ahmet@example.com",
+    "phone": "0555 123 45 67",
+    "profileImageUrl": "https://cdn.../profile.jpg",
+    "profileVisibility": "PublicToAll",
+    "followerCount": 45,
+    "followingCount": 23,
+    "createdAt": "2025-01-01T10:00:00Z",
+    "lastLoginAt": "2026-01-05T14:30:00Z"
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<UserProfileDto>> GetProfileAsync(int userId, bool forceRefresh = false)
+{
+    var cacheKey = $"user_profile_{userId}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<UserProfileDto>(cacheKey);
+        if (cached != null)
+            return BaseResponse<UserProfileDto>.SuccessResponse(cached);
+    }
+
+    var user = await _context.Users
+        .AsNoTracking()
+        .FirstOrDefaultAsync(u => u.Id == userId);
+
+    if (user == null)
+        return BaseResponse<UserProfileDto>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    var profile = MapToUserProfileDto(user);
+
+    if (!forceRefresh)
+    {
+        await _cacheService.SetAsync(cacheKey, profile, TimeSpan.FromMinutes(15));
+    }
+
+    return BaseResponse<UserProfileDto>.SuccessResponse(profile);
+}
+```
+
+---
+
+#### [PUT] `/api/user/profile`
+
+Profil bilgilerini güncelle.
+
+**Request:**
+
+```json
+{
+  "fullName": "Ahmet Yılmaz",
+  "phone": "0555 123 45 67",
+  "profileVisibility": "TeachersOnly"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> UpdateProfileAsync(int userId, UpdateProfileRequest request)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    if (!string.IsNullOrEmpty(request.FullName))
+        user.FullName = request.FullName;
+
+    if (request.Phone != null)
+        user.Phone = request.Phone;
+
+    if (request.ProfileVisibility.HasValue)
+        user.ProfileVisibility = request.ProfileVisibility.Value;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(userId, "ProfileUpdated", null);
+
+    return BaseResponse<string>.SuccessResponse("Profile updated successfully");
+}
+```
+
+---
+
+#### [POST] `/api/user/change-password`
+
+Kullanıcı şifresini değiştirme.
+
+**Request:**
+
+```json
+{
+  "currentPassword": "OldPass123!",
+  "newPassword": "NewPass123!"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> ChangePasswordAsync(int userId, ChangePasswordRequest request)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // Mevcut şifreyi doğrula
+    if (!PasswordHelper.VerifyHash(request.CurrentPassword, user.PasswordHash, user.PasswordSalt))
+        return BaseResponse<string>.ErrorResponse("Current password is incorrect", ErrorCodes.AuthInvalidPassword);
+
+    // Yeni şifreyi hash'le
+    PasswordHelper.CreateHash(request.NewPassword, out byte[] hash, out byte[] salt);
+    user.PasswordHash = hash;
+    user.PasswordSalt = salt;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(userId, "PasswordChanged", null);
+
+    return BaseResponse<string>.SuccessResponse("Password changed successfully");
+}
+```
+
+---
+
+#### [POST] `/api/user/upload-profile-image`
+
+Profil fotoğrafı yükleme.
+
+**Request:**
+
+- `IFormFile file`: Resim dosyası (max 5MB, jpg/png)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> UploadProfileImageAsync(int userId, IFormFile file)
+{
+    // 1. Dosya validasyonu
+    if (file == null || file.Length == 0)
+        return BaseResponse<string>.ErrorResponse("File is required", ErrorCodes.ValidationFailed);
+
+    if (file.Length > 5 * 1024 * 1024) // 5MB
+        return BaseResponse<string>.ErrorResponse("File size must be less than 5MB", ErrorCodes.ValidationFailed);
+
+    var allowedExtensions = new[] { ".jpg", ".jpeg", ".png" };
+    var extension = Path.GetExtension(file.FileName).ToLower();
+    if (!allowedExtensions.Contains(extension))
+        return BaseResponse<string>.ErrorResponse("Only JPG and PNG files are allowed", ErrorCodes.ValidationFailed);
+
+    // 2. Dosyayı yükle (FileService kullanılmalı)
+    var imageUrl = await _fileService.UploadImageAsync(file, $"profile_{userId}");
+
+    // 3. Kullanıcı profil resmini güncelle
+    var user = await _context.Users.FindAsync(userId);
+    user.ProfileImageUrl = imageUrl;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    return BaseResponse<string>.SuccessResponse(imageUrl);
+}
+```
+
+---
+
+#### [POST] `/api/user/logout`
+
+Kullanıcı çıkışı (Token blacklist'e ekleme).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> LogoutAsync(int userId, string token)
+{
+    // 1. Refresh token'ları devre dışı bırak
+    var refreshTokens = await _context.RefreshTokens
+        .Where(rt => rt.UserId == userId && rt.IsActive)
+        .ToListAsync();
+
+    foreach (var rt in refreshTokens)
+    {
+        rt.IsActive = false;
+    }
+
+    await _context.SaveChangesAsync();
+
+    // 2. JWT token'ı blacklist'e ekle (TokenBlacklistService kullanılmalı)
+    await _tokenBlacklistService.BlacklistTokenAsync(token);
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(userId, "UserLoggedOut", null);
+
+    return BaseResponse<string>.SuccessResponse("Logged out successfully");
+}
+```
+
+---
+
+#### [POST] `/api/user/send-verification-email`
+
+Email doğrulama linki gönderme.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> SendVerificationEmailAsync(int userId)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // 1. Token oluştur
+    var token = Guid.NewGuid().ToString();
+    var emailVerification = new EmailVerification
+    {
+        UserId = userId,
+        Token = token,
+        ExpiresAt = DateTime.UtcNow.AddDays(7),
+        IsUsed = false,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.EmailVerifications.Add(emailVerification);
+    await _context.SaveChangesAsync();
+
+    // 2. Email gönder
+    var verificationLink = $"https://karneproject.com/verify-email?token={token}";
+    await EmailService.SendVerificationEmailAsync(user.Email, verificationLink);
+
+    return BaseResponse<string>.SuccessResponse("Verification email sent");
+}
+```
+
+---
+
+#### [POST] `/api/user/verify-email`
+
+Email doğrulama işlemini tamamlama.
+
+**Request:**
+
+```json
+{
+  "token": "guid-token-here"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> VerifyEmailAsync(string token)
+{
+    var emailVerification = await _context.EmailVerifications
+        .Include(ev => ev.User)
+        .FirstOrDefaultAsync(ev => ev.Token == token && !ev.IsUsed && ev.ExpiresAt > DateTime.UtcNow);
+
+    if (emailVerification == null)
+        return BaseResponse<string>.ErrorResponse("Invalid or expired token", ErrorCodes.ValidationFailed);
+
+    // Email'i doğrula
+    emailVerification.User.EmailVerified = true;
+    emailVerification.IsUsed = true;
+    emailVerification.UsedAt = DateTime.UtcNow;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(emailVerification.UserId);
+
+    return BaseResponse<string>.SuccessResponse("Email verified successfully");
+}
+```
+
+---
+
+#### [GET] `/api/user/profile/{userId}`
+
+Başka bir kullanıcının profilini görüntüleme (privacy ayarlarına göre).
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<UserProfileDto>> GetUserProfileAsync(int targetUserId, int currentUserId, bool forceRefresh = false)
+{
+    var cacheKey = $"user_profile_{targetUserId}_{currentUserId}";
+    if (!forceRefresh)
+    {
+        var cached = await _cacheService.GetAsync<UserProfileDto>(cacheKey);
+        if (cached != null)
+            return BaseResponse<UserProfileDto>.SuccessResponse(cached);
+    }
+
+    var targetUser = await _context.Users
+        .AsNoTracking()
+        .FirstOrDefaultAsync(u => u.Id == targetUserId);
+
+    if (targetUser == null)
+        return BaseResponse<UserProfileDto>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // Privacy kontrolü
+    var isOwner = targetUserId == currentUserId;
+    var canView = CanViewProfile(targetUser, currentUserId, _context);
+
+    if (!canView)
+        return BaseResponse<UserProfileDto>.ErrorResponse("You don't have permission to view this profile", ErrorCodes.AuthAccessDenied);
+
+    var profile = MapToUserProfileDto(targetUser, isOwner);
+
+    if (!forceRefresh)
+    {
+        await _cacheService.SetAsync(cacheKey, profile, TimeSpan.FromMinutes(10));
+    }
+
+    return BaseResponse<UserProfileDto>.SuccessResponse(profile);
+}
+```
+
+---
+
+#### [PUT] `/api/user/email`
+
+Email adresini güncelleme.
+
+**Request:**
+
+```json
+{
+  "newEmail": "newemail@example.com"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> UpdateEmailAsync(int userId, UpdateEmailRequest request)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // Email benzersizlik kontrolü
+    var emailExists = await _context.Users.AnyAsync(u => u.Email == request.NewEmail && u.Id != userId);
+    if (emailExists)
+        return BaseResponse<string>.ErrorResponse("Email already in use", ErrorCodes.ValidationFailed);
+
+    user.Email = request.NewEmail;
+    user.EmailVerified = false; // Yeni email doğrulanmalı
+
+    await _context.SaveChangesAsync();
+
+    // Yeni email doğrulama linki gönder
+    await SendVerificationEmailAsync(userId);
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    return BaseResponse<string>.SuccessResponse("Email updated. Please verify your new email.");
+}
+```
+
+---
+
+#### [DELETE] `/api/user/account`
+
+Hesap silme (soft delete).
+
+**Request:**
+
+```json
+{
+  "password": "SecurePass123!"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> DeleteAccountAsync(int userId, DeleteAccountRequest request)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // Şifre doğrulama
+    if (!PasswordHelper.VerifyHash(request.Password, user.PasswordHash, user.PasswordSalt))
+        return BaseResponse<string>.ErrorResponse("Password is incorrect", ErrorCodes.AuthInvalidPassword);
+
+    // Soft delete
+    user.Status = UserStatus.Deleted;
+    user.DeletedAt = DateTime.UtcNow;
+
+    // Refresh token'ları devre dışı bırak
+    var refreshTokens = await _context.RefreshTokens
+        .Where(rt => rt.UserId == userId && rt.IsActive)
+        .ToListAsync();
+
+    foreach (var rt in refreshTokens)
+    {
+        rt.IsActive = false;
+    }
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(userId, "AccountDeleted", null);
+
+    return BaseResponse<string>.SuccessResponse("Account deleted successfully");
+}
+```
+
+---
+
+#### [GET] `/api/user/statistics`
+
+Kullanıcı istatistiklerini getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalExams": 15,
+    "averageScore": 78.5,
+    "totalReports": 12,
+    "classRank": 3,
+    "institutionRank": 15,
+    "totalStudyHours": 120.5,
+    "completedTasks": 45,
+    "pendingTasks": 8
+  }
+}
+```
+
+---
+
+#### [GET] `/api/user/activity`
+
+Kullanıcı aktivite geçmişini getir.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "action": "ExamCompleted",
+        "description": "TYT Deneme-1 sınavını tamamladı",
+        "timestamp": "2026-01-05T10:30:00Z",
+        "link": "/exam/123"
+      }
+    ],
+    "totalCount": 150,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/user/search`
+
+Kullanıcı arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `role`: UserRole filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 105,
+        "fullName": "Ahmet Yılmaz",
+        "username": "ahmet123",
+        "profileImageUrl": "https://...",
+        "followerCount": 45
+      }
+    ],
+    "totalCount": 50,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/user/preferences`
+
+Kullanıcı tercihlerini getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "theme": "dark",
+    "language": "tr",
+    "dateFormat": "dd/MM/yyyy",
+    "timeFormat": "24h",
+    "notificationSettings": {
+      "emailNotifications": true,
+      "pushNotifications": true,
+      "messageNotifications": true
+    },
+    "profileLayout": {
+      "showStatistics": true,
+      "showActivity": true,
+      "widgetOrder": ["stats", "activity", "reports"]
+    },
+    "dashboardLayout": {
+      "showQuickActions": true,
+      "showRecentExams": true,
+      "widgetOrder": ["exams", "notifications", "calendar"]
+    }
+  }
+}
+```
+
+---
+
+#### [PUT] `/api/user/preferences`
+
+Kullanıcı tercihlerini güncelle.
+
+**Request:**
+
+```json
+{
+  "theme": "dark",
+  "language": "en",
+  "dateFormat": "MM/dd/yyyy",
+  "timeFormat": "12h",
+  "notificationSettings": {
+    "emailNotifications": false,
+    "pushNotifications": true
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> UpdatePreferencesAsync(int userId, UserPreferencesDto request)
+{
+    var preferences = await _context.UserPreferences
+        .FirstOrDefaultAsync(up => up.UserId == userId);
+
+    if (preferences == null)
+    {
+        preferences = new UserPreferences
+        {
+            UserId = userId,
+            CreatedAt = DateTime.UtcNow
+        };
+        _context.UserPreferences.Add(preferences);
+    }
+
+    if (!string.IsNullOrEmpty(request.Theme))
+        preferences.Theme = request.Theme;
+
+    if (!string.IsNullOrEmpty(request.Language))
+        preferences.Language = request.Language;
+
+    if (!string.IsNullOrEmpty(request.DateFormat))
+        preferences.DateFormat = request.DateFormat;
+
+    if (!string.IsNullOrEmpty(request.TimeFormat))
+        preferences.TimeFormat = request.TimeFormat;
+
+    if (request.NotificationSettings != null)
+        preferences.NotificationSettingsJson = JsonSerializer.Serialize(request.NotificationSettings);
+
+    preferences.UpdatedAt = DateTime.UtcNow;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(userId, "PreferencesUpdated", null);
+
+    return BaseResponse<string>.SuccessResponse("Preferences updated successfully");
+}
+```
+
+---
+
+#### [PUT] `/api/user/preferences/profile-layout`
+
+Profil sayfası layout'unu güncelle.
+
+**Request:**
+
+```json
+{
+  "showStatistics": true,
+  "showActivity": false,
+  "widgetOrder": ["reports", "stats", "activity"]
+}
+```
+
+---
+
+#### [PUT] `/api/user/preferences/dashboard-layout`
+
+Dashboard layout'unu güncelle.
+
+**Request:**
+
+```json
+{
+  "showQuickActions": true,
+  "showRecentExams": true,
+  "widgetOrder": ["exams", "calendar", "notifications"]
+}
+```
+
+---
+
+### 3.6. Admin Operations (Genişletilmiş)
+
+#### [GET] `/api/admin/users`
+
+Tüm kullanıcıları listele (pagination, filtreleme, arama).
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `status`: UserStatus filtresi (opsiyonel)
+- `role`: UserRole filtresi (opsiyonel)
+- `search`: Arama metni (opsiyonel)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 105,
+        "fullName": "Ahmet Yılmaz",
+        "username": "ahmet123",
+        "email": "ahmet@example.com",
+        "role": "User",
+        "status": "Active",
+        "createdAt": "2025-01-01T10:00:00Z",
+        "lastLoginAt": "2026-01-05T14:30:00Z"
+      }
+    ],
+    "totalCount": 1500,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/admin/users/{id}`
+
+Belirli bir kullanıcının detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [PUT] `/api/admin/users/{id}`
+
+Kullanıcı bilgilerini admin tarafından güncelleme.
+
+**Request:**
+
+```json
+{
+  "fullName": "Ahmet Yılmaz",
+  "email": "ahmet@example.com",
+  "phone": "0555 123 45 67",
+  "role": "User",
+  "status": "Active"
+}
+```
+
+---
+
+#### [PUT] `/api/admin/users/{id}/status`
+
+Kullanıcı durumunu değiştirme (Active, Suspended, Deleted).
+
+**Request:**
+
+```json
+{
+  "status": "Suspended"
+}
+```
+
+---
+
+#### [DELETE] `/api/admin/users/{id}`
+
+Kullanıcıyı silme (soft delete).
+
+---
+
+#### [POST] `/api/admin/users/{id}/reset-password`
+
+Admin tarafından kullanıcı şifresini sıfırlama.
+
+**Request:**
+
+```json
+{
+  "newPassword": "TempPass123!"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> ResetUserPasswordAsync(int userId, string newPassword, int adminId)
+{
+    var user = await _context.Users.FindAsync(userId);
+    if (user == null)
+        return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
+
+    // Yeni şifreyi hash'le
+    PasswordHelper.CreateHash(newPassword, out byte[] hash, out byte[] salt);
+    user.PasswordHash = hash;
+    user.PasswordSalt = salt;
+
+    // Tüm refresh token'ları devre dışı bırak (güvenlik)
+    var refreshTokens = await _context.RefreshTokens
+        .Where(rt => rt.UserId == userId && rt.IsActive)
+        .ToListAsync();
+
+    foreach (var rt in refreshTokens)
+    {
+        rt.IsActive = false;
+    }
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    // Audit log
+    await _auditService.LogAsync(adminId, "UserPasswordReset", JsonSerializer.Serialize(new { TargetUserId = userId }));
+
+    return BaseResponse<string>.SuccessResponse("Password reset successfully");
+}
+```
+
+---
+
+#### [GET] `/api/admin/institutions`
+
+Tüm kurumları listele.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `status`: InstitutionStatus filtresi (opsiyonel)
+- `search`: Arama metni (opsiyonel)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/admin/institutions/{id}`
+
+Belirli bir kurumun detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [POST] `/api/admin/institutions/{id}/reject`
+
+Kurum başvurusunu reddetme.
+
+**Request:**
+
+```json
+{
+  "reason": "Eksik belgeler"
+}
+```
+
+---
+
+#### [PUT] `/api/admin/institutions/{id}/status`
+
+Kurum durumunu değiştirme.
+
+**Request:**
+
+```json
+{
+  "status": "Suspended"
+}
+```
+
+---
+
+#### [PUT] `/api/admin/institutions/{id}/subscription`
+
+Kurum aboneliğini uzatma.
+
+**Request:**
+
+```json
+{
+  "months": 12
+}
+```
+
+---
+
+#### [POST] `/api/admin/create-admin`
+
+Yeni admin hesabı oluşturma (Sadece AdminAdmin).
+
+**Request:**
+
+```json
+{
+  "fullName": "Admin User",
+  "username": "admin123",
+  "email": "admin@karneproject.com",
+  "password": "SecurePass123!",
+  "role": "Admin"
+}
+```
+
+---
+
+#### [GET] `/api/admin/admins`
+
+Tüm admin hesaplarını listele.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/admin/statistics`
+
+Admin paneli istatistikleri.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalUsers": 1500,
+    "activeUsers": 1200,
+    "suspendedUsers": 50,
+    "totalInstitutions": 45,
+    "activeInstitutions": 40,
+    "pendingInstitutions": 5,
+    "totalExams": 500,
+    "totalReports": 2000,
+    "recentRegistrations": 25,
+    "recentLogins": 150
+  }
+}
+```
+
+---
+
+#### [GET] `/api/admin/audit-logs`
+
+Audit log kayıtlarını listele.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `userId`: Kullanıcı ID filtresi (opsiyonel)
+- `action`: Action filtresi (opsiyonel)
+- `dateFrom`: Başlangıç tarihi (opsiyonel)
+- `dateTo`: Bitiş tarihi (opsiyonel)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/admin/audit-logs/user/{userId}`
+
+Belirli bir kullanıcının audit log kayıtlarını getir.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+### 3.7. Account Link Operations (Genişletilmiş)
+
+#### [GET] `/api/account/link-requests`
+
+Hesap bağlama taleplerini listele.
+
+**Query Parameters:**
+
+- `status`: LinkStatus filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 10,
+        "mainUserName": "ahmet123",
+        "institutionName": "ABC Dershanesi",
+        "studentNumber": "2024001",
+        "status": "Pending",
+        "requestedAt": "2026-01-04T10:00:00Z"
+      }
+    ],
+    "totalCount": 5,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/account/links`
+
+Bağlı hesapları listele.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 5,
+      "institutionName": "ABC Dershanesi",
+      "studentNumber": "2024001",
+      "status": "Approved",
+      "linkedAt": "2026-01-03T15:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### [DELETE] `/api/account/link/{id}`
+
+Hesap bağlantısını silme.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> DeleteAccountLinkAsync(int linkId, int currentUserId)
+{
+    var link = await _context.AccountLinks
+        .Include(al => al.MainUser)
+        .Include(al => al.InstitutionUser)
+            .ThenInclude(iu => iu.Institution)
+        .FirstOrDefaultAsync(al => al.Id == linkId);
+
+    if (link == null)
+        return BaseResponse<string>.ErrorResponse("Link not found", ErrorCodes.ValidationFailed);
+
+    // Sadece ana hesap sahibi veya kurum yöneticisi silebilir
+    var isMainUser = link.MainUserId == currentUserId;
+    var isManager = await _context.InstitutionUsers
+        .AnyAsync(iu => iu.UserId == currentUserId && 
+                       iu.InstitutionId == link.InstitutionUser.InstitutionId && 
+                       iu.Role == InstitutionRole.Manager);
+
+    if (!isMainUser && !isManager)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    _context.AccountLinks.Remove(link);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateAccountLinkCacheAsync(currentUserId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "AccountLinkDeleted", JsonSerializer.Serialize(new { LinkId = linkId }));
+
+    return BaseResponse<string>.SuccessResponse("Account link deleted successfully");
+}
+```
+
+---
+
+### 3.8. Health Check
+
+#### [GET] `/api/health`
+
+Uygulama sağlık durumunu kontrol et.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "status": "Healthy",
+    "database": "Connected",
+    "redis": "Connected",
+    "timestamp": "2026-01-05T15:00:00Z"
+  }
+}
+```
+
+**Operation Logic:**
+
+```csharp
+[HttpGet]
+public async Task<IActionResult> GetHealth()
+{
+    var health = new
+    {
+        Status = "Healthy",
+        Database = await CheckDatabaseAsync() ? "Connected" : "Disconnected",
+        Redis = await CheckRedisAsync() ? "Connected" : "Disconnected",
+        Timestamp = DateTime.UtcNow
+    };
+
+    return Ok(BaseResponse<object>.SuccessResponse(health));
+}
+```
+
+---
+
+### 3.9. Middleware'ler
+
+#### GlobalExceptionMiddleware
+
+Tüm exception'ları yakalar ve `BaseResponse` formatında döner.
+
+**Kullanım:**
+
+```csharp
+app.UseMiddleware<GlobalExceptionMiddleware>();
+```
+
+**Özellikler:**
+
+- Tüm exception'ları yakalar
+- `BaseResponse` formatında hata döner
+- 6 haneli hata kodları kullanır
+- Loglama yapar
+
+---
+
+#### RequestLoggingMiddleware
+
+Tüm HTTP isteklerini loglar.
+
+**Kullanım:**
+
+```csharp
+app.UseMiddleware<RequestLoggingMiddleware>();
+```
+
+**Özellikler:**
+
+- Request method, path, query string
+- Response status code
+- İşlem süresi
+- IP adresi
+
+---
+
+#### TokenBlacklistMiddleware
+
+Blacklist'teki JWT token'ları reddeder.
+
+**Kullanım:**
+
+```csharp
+app.UseMiddleware<TokenBlacklistMiddleware>();
+```
+
+**Özellikler:**
+
+- Logout edilen token'ları kontrol eder
+- Güvenlik ihlali durumunda token'ları blacklist'e ekler
+
+---
+
+### 3.10. Rate Limiting
+
+**Kullanım:**
+
+```csharp
+builder.Services.AddRateLimiter(options =>
+{
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: partition => new FixedWindowRateLimiterOptions
+            {
+                AutoReplenishment = true,
+                PermitLimit = 1000, // 1000 requests
+                Window = TimeSpan.FromMinutes(1) // per minute (very broad)
+            }));
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        await context.HttpContext.Response.WriteAsJsonAsync(
+            BaseResponse<string>.ErrorResponse("Too many requests. Please try again later.", "100429"),
+            cancellationToken);
+    };
+});
+
+app.UseRateLimiter();
+```
+
+**Özellikler:**
+
+- Global rate limiting: 1000 request/dakika/IP
+- 429 (Too Many Requests) hatası döner
+- `BaseResponse` formatında hata mesajı
+
+---
+
+### 3.11. Cache Service (Geliştirilmiş)
+
+#### Pattern-Based Cache Removal
+
+Redis SCAN kullanarak pattern'e göre cache temizleme.
+
+**Kullanım:**
+
+```csharp
+public async Task RemoveByPatternAsync(string pattern)
+{
+    var server = _redis.GetServer(_redis.GetEndPoints().First());
+    var keys = server.Keys(pattern: $"*{pattern}*").ToList();
+    foreach (var key in keys)
+    {
+        await _cache.RemoveAsync(key!);
+    }
+}
+```
+
+#### Specific Cache Invalidation Methods
+
+```csharp
+public async Task InvalidateUserCacheAsync(int userId)
+{
+    await RemoveByPatternAsync($"user_profile_{userId}");
+    await RemoveByPatternAsync($"user_statistics_{userId}");
+    await RemoveByPatternAsync($"user_preferences_{userId}");
+    await RemoveByPatternAsync($"User:{userId}:Notifications");
+    await RemoveByPatternAsync($"User:{userId}:Conversations");
+    await RemoveByPatternAsync($"User:{userId}:LinkRequests");
+    await RemoveByPatternAsync($"User:{userId}:LinkedAccounts");
+    await RemoveByPatternAsync($"search_users");
+}
+
+public async Task InvalidateAdminCacheAsync()
+{
+    await RemoveByPatternAsync("admin_statistics");
+    await RemoveByPatternAsync("admin_users");
+    await RemoveByPatternAsync("admin_institutions");
+    await RemoveByPatternAsync("admin_audit_logs");
+    await RemoveByPatternAsync("search_");
+}
+```
+
+---
+
+### 3.12. Force Refresh Mekanizması
+
+Tüm `GET` endpoint'lerinde cache'i bypass etmek için `forceRefresh` query parametresi eklendi.
+
+**Kullanım:**
+
+```
+GET /api/user/profile?forceRefresh=true
+GET /api/admin/users?forceRefresh=true&page=1&limit=20
+GET /api/exam?forceRefresh=false
+```
+
+**Frontend Kullanımı:**
+
+1. Kullanıcı "Yenile" butonuna tıklar
+2. `forceRefresh=true` parametresi ile istek gönderilir
+3. Cache bypass edilir, fresh data döner
+4. Yeni data cache'e yazılır
+
+---
+
 ## 🏫 4. FAZ 2: KURUM YÖNETİMİ (Institution Management)
 
 Bu fazda dershanelerin tüm operasyonel ihtiyaçları karşılanır.
@@ -2027,6 +3511,1242 @@ document.getElementById("exportPdf").onclick = async () => {
 
 ---
 
+### 4.5. Institution Management (Genişletilmiş)
+
+#### [GET] `/api/institution/my`
+
+Kullanıcının üye olduğu kurumları listele.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "name": "ABC Dershanesi",
+      "role": "Manager",
+      "status": "Active",
+      "joinedAt": "2025-01-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### [GET] `/api/institution/{id}`
+
+Kurum detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 1,
+    "name": "ABC Dershanesi",
+    "licenseNumber": "34-12345",
+    "address": "Kadıköy, İstanbul",
+    "phone": "0216 123 45 67",
+    "status": "Active",
+    "subscriptionStartDate": "2025-01-01T00:00:00Z",
+    "subscriptionEndDate": "2026-01-01T00:00:00Z",
+    "managerName": "Ahmet Yılmaz",
+    "totalClassrooms": 12,
+    "totalStudents": 350,
+    "totalTeachers": 25
+  }
+}
+```
+
+---
+
+#### [PUT] `/api/institution/{id}`
+
+Kurum bilgilerini güncelle (Sadece Manager).
+
+**Request:**
+
+```json
+{
+  "name": "ABC Dershanesi",
+  "address": "Yeni Adres",
+  "phone": "0216 999 99 99"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> UpdateInstitutionAsync(int institutionId, UpdateInstitutionRequest request, int currentUserId)
+{
+    // Yetki kontrolü
+    var institutionUser = await _context.InstitutionUsers
+        .FirstOrDefaultAsync(iu => iu.UserId == currentUserId && 
+                                   iu.InstitutionId == institutionId && 
+                                   iu.Role == InstitutionRole.Manager);
+
+    if (institutionUser == null)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    var institution = await _context.Institutions.FindAsync(institutionId);
+    if (institution == null)
+        return BaseResponse<string>.ErrorResponse("Institution not found", ErrorCodes.ValidationFailed);
+
+    if (!string.IsNullOrEmpty(request.Name))
+        institution.Name = request.Name;
+
+    if (!string.IsNullOrEmpty(request.Address))
+        institution.Address = request.Address;
+
+    if (!string.IsNullOrEmpty(request.Phone))
+        institution.Phone = request.Phone;
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateInstitutionCacheAsync(institutionId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "InstitutionUpdated", JsonSerializer.Serialize(new { InstitutionId = institutionId }));
+
+    return BaseResponse<string>.SuccessResponse("Institution updated successfully");
+}
+```
+
+---
+
+#### [GET] `/api/institution/{id}/members`
+
+Kurum üyelerini listele.
+
+**Query Parameters:**
+
+- `role`: InstitutionRole filtresi (opsiyonel)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 10,
+      "userId": 105,
+      "userName": "ahmet123",
+      "fullName": "Ahmet Yılmaz",
+      "role": "Teacher",
+      "studentNumber": null,
+      "employeeNumber": "EMP001",
+      "joinedAt": "2025-01-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### [POST] `/api/institution/{id}/add-member`
+
+Kuruma üye ekleme (Sadece Manager).
+
+**Request:**
+
+```json
+{
+  "userId": 105,
+  "role": "Teacher",
+  "number": "EMP001"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> AddMemberAsync(int institutionId, AddMemberRequest request, int currentUserId)
+{
+    // Yetki kontrolü
+    var institutionUser = await _context.InstitutionUsers
+        .FirstOrDefaultAsync(iu => iu.UserId == currentUserId && 
+                                   iu.InstitutionId == institutionId && 
+                                   iu.Role == InstitutionRole.Manager);
+
+    if (institutionUser == null)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    // Zaten üye mi?
+    var existingMember = await _context.InstitutionUsers
+        .AnyAsync(iu => iu.UserId == request.UserId && iu.InstitutionId == institutionId);
+
+    if (existingMember)
+        return BaseResponse<string>.ErrorResponse("User is already a member", ErrorCodes.ValidationFailed);
+
+    var newMember = new InstitutionUser
+    {
+        UserId = request.UserId,
+        InstitutionId = institutionId,
+        Role = request.Role,
+        JoinedAt = DateTime.UtcNow
+    };
+
+    if (request.Role == InstitutionRole.Student)
+        newMember.StudentNumber = request.Number;
+    else if (request.Role == InstitutionRole.Teacher)
+        newMember.EmployeeNumber = request.Number;
+
+    _context.InstitutionUsers.Add(newMember);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateInstitutionCacheAsync(institutionId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "MemberAdded", JsonSerializer.Serialize(new { InstitutionId = institutionId, UserId = request.UserId }));
+
+    return BaseResponse<string>.SuccessResponse("Member added successfully");
+}
+```
+
+---
+
+#### [DELETE] `/api/institution/{id}/member/{memberId}`
+
+Kurumdan üye çıkarma (Sadece Manager).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> RemoveMemberAsync(int institutionId, int memberId, int currentUserId)
+{
+    // Yetki kontrolü
+    var institutionUser = await _context.InstitutionUsers
+        .FirstOrDefaultAsync(iu => iu.UserId == currentUserId && 
+                                   iu.InstitutionId == institutionId && 
+                                   iu.Role == InstitutionRole.Manager);
+
+    if (institutionUser == null)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    var member = await _context.InstitutionUsers
+        .FirstOrDefaultAsync(iu => iu.Id == memberId && iu.InstitutionId == institutionId);
+
+    if (member == null)
+        return BaseResponse<string>.ErrorResponse("Member not found", ErrorCodes.ValidationFailed);
+
+    // Manager kendini çıkaramaz
+    if (member.UserId == currentUserId)
+        return BaseResponse<string>.ErrorResponse("You cannot remove yourself", ErrorCodes.ValidationFailed);
+
+    _context.InstitutionUsers.Remove(member);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateInstitutionCacheAsync(institutionId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "MemberRemoved", JsonSerializer.Serialize(new { InstitutionId = institutionId, MemberId = memberId }));
+
+    return BaseResponse<string>.SuccessResponse("Member removed successfully");
+}
+```
+
+---
+
+#### [PUT] `/api/institution/{id}/member/{memberId}/role`
+
+Üye rolünü güncelleme (Sadece Manager).
+
+**Request:**
+
+```json
+{
+  "role": "Teacher"
+}
+```
+
+---
+
+#### [GET] `/api/institution/{id}/statistics`
+
+Kurum istatistiklerini getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalClassrooms": 12,
+    "totalStudents": 350,
+    "totalTeachers": 25,
+    "totalExams": 50,
+    "totalReports": 200,
+    "averageExamScore": 78.5,
+    "activeMembers": 375
+  }
+}
+```
+
+---
+
+### 4.6. Classroom Management (Genişletilmiş)
+
+#### [GET] `/api/classroom/{id}`
+
+Sınıf detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 5,
+    "name": "12-A",
+    "grade": 12,
+    "institutionName": "ABC Dershanesi",
+    "headTeacherName": "Mehmet Öğretmen",
+    "totalStudents": 30,
+    "totalTeachers": 5,
+    "createdAt": "2025-01-01T10:00:00Z"
+  }
+}
+```
+
+---
+
+#### [GET] `/api/classroom/institution/{institutionId}`
+
+Kurumun tüm sınıflarını listele.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [PUT] `/api/classroom/{id}`
+
+Sınıf bilgilerini güncelle (Sadece Manager).
+
+**Request:**
+
+```json
+{
+  "name": "12-B",
+  "grade": 12
+}
+```
+
+---
+
+#### [DELETE] `/api/classroom/{id}`
+
+Sınıfı silme (Sadece Manager).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> DeleteClassroomAsync(int classroomId, int currentUserId)
+{
+    // Yetki kontrolü
+    var classroom = await _context.Classrooms
+        .Include(c => c.Institution)
+        .FirstOrDefaultAsync(c => c.Id == classroomId);
+
+    if (classroom == null)
+        return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.ValidationFailed);
+
+    var institutionUser = await _context.InstitutionUsers
+        .FirstOrDefaultAsync(iu => iu.UserId == currentUserId && 
+                                   iu.InstitutionId == classroom.InstitutionId && 
+                                   iu.Role == InstitutionRole.Manager);
+
+    if (institutionUser == null)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    // Soft delete
+    classroom.IsActive = false;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateClassroomCacheAsync(classroomId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "ClassroomDeleted", JsonSerializer.Serialize(new { ClassroomId = classroomId }));
+
+    return BaseResponse<string>.SuccessResponse("Classroom deleted successfully");
+}
+```
+
+---
+
+#### [DELETE] `/api/classroom/{classroomId}/student/{studentId}`
+
+Sınıftan öğrenci çıkarma (Sadece Manager veya Teacher).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> RemoveStudentFromClassroomAsync(int classroomId, int studentId, int currentUserId)
+{
+    // Yetki kontrolü
+    var classroom = await _context.Classrooms
+        .Include(c => c.Institution)
+        .FirstOrDefaultAsync(c => c.Id == classroomId);
+
+    if (classroom == null)
+        return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.ValidationFailed);
+
+    var hasPermission = await _context.InstitutionUsers
+        .AnyAsync(iu => iu.UserId == currentUserId && 
+                       iu.InstitutionId == classroom.InstitutionId && 
+                       (iu.Role == InstitutionRole.Manager || iu.Role == InstitutionRole.Teacher));
+
+    if (!hasPermission)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    var classroomStudent = await _context.ClassroomStudents
+        .Include(cs => cs.Student)
+        .FirstOrDefaultAsync(cs => cs.ClassroomId == classroomId && cs.Student.UserId == studentId);
+
+    if (classroomStudent == null)
+        return BaseResponse<string>.ErrorResponse("Student not found in classroom", ErrorCodes.ValidationFailed);
+
+    // Soft delete
+    classroomStudent.RemovedAt = DateTime.UtcNow;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateClassroomCacheAsync(classroomId);
+
+    // Audit log
+    await _auditService.LogAsync(currentUserId, "StudentRemovedFromClassroom", 
+        JsonSerializer.Serialize(new { ClassroomId = classroomId, StudentId = studentId }));
+
+    return BaseResponse<string>.SuccessResponse("Student removed from classroom successfully");
+}
+```
+
+---
+
+#### [GET] `/api/classroom/{classroomId}/students`
+
+Sınıf öğrencilerini listele.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 10,
+      "userId": 105,
+      "fullName": "Ahmet Yılmaz",
+      "studentNumber": "2024001",
+      "assignedAt": "2025-01-01T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+### 4.7. Exam Management (Genişletilmiş)
+
+#### [GET] `/api/exam`
+
+Sınavları listele (filtreleme ve pagination).
+
+**Query Parameters:**
+
+- `institutionId`: Kurum ID filtresi (opsiyonel)
+- `classroomId`: Sınıf ID filtresi (opsiyonel)
+- `type`: ExamType filtresi (opsiyonel)
+- `dateFrom`: Başlangıç tarihi (opsiyonel)
+- `dateTo`: Bitiş tarihi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 5,
+      "name": "TYT Deneme-1",
+      "date": "2026-01-10T09:00:00Z",
+      "type": "TYT",
+      "institutionName": "ABC Dershanesi",
+      "classroomName": "12-A",
+      "totalStudents": 30,
+      "isPublished": true,
+      "createdAt": "2026-01-05T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+#### [GET] `/api/exam/{id}`
+
+Sınav detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 5,
+    "name": "TYT Deneme-1",
+    "date": "2026-01-10T09:00:00Z",
+    "type": "TYT",
+    "institutionName": "ABC Dershanesi",
+    "classroomName": "12-A",
+    "answerKey": {
+      "Matematik": "ABCDEABCDE...",
+      "Fizik": "BCDABCDA..."
+    },
+    "totalStudents": 30,
+    "processedResults": 28,
+    "isPublished": true,
+    "createdAt": "2026-01-05T10:00:00Z"
+  }
+}
+```
+
+---
+
+#### [GET] `/api/exam/{id}/results`
+
+Sınav sonuçlarını listele (öğretmen için).
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 101,
+        "studentName": "Ahmet Yılmaz",
+        "studentNumber": "2024001",
+        "totalNet": 98.25,
+        "totalScore": 385.50,
+        "classRank": 1,
+        "institutionRank": 5,
+        "isConfirmed": true,
+        "createdAt": "2026-01-10T10:30:00Z"
+      }
+    ],
+    "totalCount": 30,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+### 4.8. Report Management (Genişletilmiş)
+
+#### [GET] `/api/report/student/{resultId}`
+
+Öğrenci karnesi detayı.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 101,
+    "examName": "TYT Deneme-1",
+    "examDate": "2026-01-10T09:00:00Z",
+    "studentName": "Ahmet Yılmaz",
+    "studentNumber": "2024001",
+    "totalNet": 98.25,
+    "totalScore": 385.50,
+    "classRank": 1,
+    "institutionRank": 5,
+    "lessons": [
+      {
+        "name": "Matematik",
+        "correct": 30,
+        "wrong": 5,
+        "empty": 5,
+        "net": 28.75,
+        "topicScores": [
+          {
+            "topicName": "Fonksiyonlar",
+            "correct": 8,
+            "wrong": 1,
+            "empty": 1,
+            "net": 7.75
+          }
+        ]
+      }
+    ],
+    "createdAt": "2026-01-10T10:30:00Z"
+  }
+}
+```
+
+---
+
+#### [GET] `/api/report/student/{studentId}/all`
+
+Öğrencinin tüm karnelerini listele.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 101,
+        "examName": "TYT Deneme-1",
+        "examDate": "2026-01-10T09:00:00Z",
+        "totalNet": 98.25,
+        "totalScore": 385.50,
+        "classRank": 1,
+        "createdAt": "2026-01-10T10:30:00Z"
+      }
+    ],
+    "totalCount": 12,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/report/classroom/{classroomId}`
+
+Sınıf karnelerini listele (öğretmen için).
+
+**Query Parameters:**
+
+- `examId`: Sınav ID filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 101,
+        "studentName": "Ahmet Yılmaz",
+        "studentNumber": "2024001",
+        "totalNet": 98.25,
+        "totalScore": 385.50,
+        "classRank": 1,
+        "isConfirmed": true
+      }
+    ],
+    "totalCount": 30,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+### 4.9. Message Management (Genişletilmiş)
+
+#### [POST] `/api/message/start`
+
+Yeni bir konuşma başlatma.
+
+**Request:**
+
+```json
+{
+  "recipientId": 106,
+  "text": "Merhaba, nasılsın?"
+}
+```
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<int>> StartConversationAsync(int currentUserId, StartConversationRequest request)
+{
+    // 1. Mevcut konuşma var mı?
+    var existingConversation = await _context.Conversations
+        .Where(c => c.Type == ConversationType.Private)
+        .Where(c => c.Members.Any(m => m.UserId == currentUserId) && 
+                   c.Members.Any(m => m.UserId == request.RecipientId))
+        .FirstOrDefaultAsync();
+
+    if (existingConversation != null)
+    {
+        // Mevcut konuşmaya mesaj gönder
+        var message = new Message
+        {
+            ConversationId = existingConversation.Id,
+            SenderId = currentUserId,
+            Text = request.Text,
+            Type = MessageType.Text,
+            SentAt = DateTime.UtcNow
+        };
+
+        _context.Messages.Add(message);
+        await _context.SaveChangesAsync();
+
+        // SignalR ile gönder
+        await _chatHub.Clients.Group($"Conversation_{existingConversation.Id}")
+            .SendAsync("ReceiveMessage", MapToMessageDto(message));
+
+        return BaseResponse<int>.SuccessResponse(existingConversation.Id);
+    }
+
+    // 2. Yeni konuşma oluştur
+    var conversation = new Conversation
+    {
+        Type = ConversationType.Private,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    _context.Conversations.Add(conversation);
+    await _context.SaveChangesAsync();
+
+    // 3. Üyeleri ekle
+    _context.ConversationMembers.AddRange(new[]
+    {
+        new ConversationMember { ConversationId = conversation.Id, UserId = currentUserId, JoinedAt = DateTime.UtcNow },
+        new ConversationMember { ConversationId = conversation.Id, UserId = request.RecipientId, JoinedAt = DateTime.UtcNow }
+    });
+
+    // 4. İlk mesajı gönder
+    var firstMessage = new Message
+    {
+        ConversationId = conversation.Id,
+        SenderId = currentUserId,
+        Text = request.Text,
+        Type = MessageType.Text,
+        SentAt = DateTime.UtcNow
+    };
+
+    _context.Messages.Add(firstMessage);
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateConversationCacheAsync(currentUserId);
+    await _cacheService.InvalidateConversationCacheAsync(request.RecipientId);
+
+    return BaseResponse<int>.SuccessResponse(conversation.Id);
+}
+```
+
+---
+
+#### [GET] `/api/message/conversations`
+
+Kullanıcının konuşmalarını listele.
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": 25,
+        "type": "Private",
+        "name": null,
+        "lastMessage": {
+          "text": "Yarınki sınav saat kaçta?",
+          "senderName": "Ahmet Yılmaz",
+          "sentAt": "2026-01-05T14:30:00Z"
+        },
+        "unreadCount": 2,
+        "participants": [
+          {
+            "id": 105,
+            "fullName": "Ahmet Yılmaz",
+            "profileImageUrl": "https://..."
+          }
+        ]
+      }
+    ],
+    "totalCount": 15,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+#### [GET] `/api/message/conversation/{id}`
+
+Konuşma detaylarını getir.
+
+**Query Parameters:**
+
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": 25,
+    "type": "Private",
+    "name": null,
+    "participants": [
+      {
+        "id": 105,
+        "fullName": "Ahmet Yılmaz",
+        "profileImageUrl": "https://..."
+      }
+    ],
+    "messages": [
+      {
+        "id": 501,
+        "text": "Yarınki sınav saat kaçta?",
+        "senderId": 105,
+        "senderName": "Ahmet Yılmaz",
+        "type": "Text",
+        "sentAt": "2026-01-05T14:30:00Z"
+      }
+    ]
+  }
+}
+```
+
+---
+
+#### [GET] `/api/message/history/{conversationId}`
+
+Konuşma mesaj geçmişini getir (pagination).
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 50)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [PUT] `/api/message/conversation/{id}`
+
+Konuşma bilgilerini güncelle (örn: isim değiştirme).
+
+**Request:**
+
+```json
+{
+  "name": "Özel Grup"
+}
+```
+
+---
+
+#### [DELETE] `/api/message/conversation/{id}`
+
+Konuşmayı silme (soft delete).
+
+---
+
+#### [POST] `/api/message/conversation/{id}/leave`
+
+Konuşmadan ayrılma (grup konuşmaları için).
+
+---
+
+#### [DELETE] `/api/message/{id}`
+
+Mesajı silme (soft delete).
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> DeleteMessageAsync(int messageId, int currentUserId)
+{
+    var message = await _context.Messages
+        .Include(m => m.Conversation)
+            .ThenInclude(c => c.Members)
+        .FirstOrDefaultAsync(m => m.Id == messageId);
+
+    if (message == null)
+        return BaseResponse<string>.ErrorResponse("Message not found", ErrorCodes.ValidationFailed);
+
+    // Sadece mesaj sahibi silebilir
+    if (message.SenderId != currentUserId)
+        return BaseResponse<string>.ErrorResponse("You don't have permission", ErrorCodes.AuthAccessDenied);
+
+    // Soft delete
+    message.IsDeleted = true;
+    message.DeletedAt = DateTime.UtcNow;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateConversationCacheAsync(message.ConversationId);
+
+    // SignalR ile bildirim
+    await _chatHub.Clients.Group($"Conversation_{message.ConversationId}")
+        .SendAsync("MessageDeleted", messageId);
+
+    return BaseResponse<string>.SuccessResponse("Message deleted successfully");
+}
+```
+
+---
+
+#### [PUT] `/api/message/{id}`
+
+Mesajı düzenleme.
+
+**Request:**
+
+```json
+{
+  "text": "Düzenlenmiş mesaj metni"
+}
+```
+
+---
+
+#### [POST] `/api/message/conversation/{id}/mark-read`
+
+Konuşmayı okundu olarak işaretleme.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> MarkConversationAsReadAsync(int conversationId, int currentUserId)
+{
+    var member = await _context.ConversationMembers
+        .FirstOrDefaultAsync(cm => cm.ConversationId == conversationId && cm.UserId == currentUserId);
+
+    if (member == null)
+        return BaseResponse<string>.ErrorResponse("You are not a member of this conversation", ErrorCodes.ValidationFailed);
+
+    member.LastReadAt = DateTime.UtcNow;
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateConversationCacheAsync(currentUserId);
+
+    return BaseResponse<string>.SuccessResponse("Conversation marked as read");
+}
+```
+
+---
+
+#### [GET] `/api/message/search`
+
+Mesajlarda arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `conversationId`: Konuşma ID filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+### 4.10. Notification Management (Genişletilmiş)
+
+#### [POST] `/api/notification/mark-read/{id}`
+
+Bildirimi okundu olarak işaretleme.
+
+---
+
+#### [POST] `/api/notification/mark-all-read`
+
+Tüm bildirimleri okundu olarak işaretleme.
+
+**Operation Logic:**
+
+```csharp
+public async Task<BaseResponse<string>> MarkAllAsReadAsync(int userId)
+{
+    var unreadNotifications = await _context.Notifications
+        .Where(n => n.UserId == userId && !n.IsRead)
+        .ToListAsync();
+
+    foreach (var notification in unreadNotifications)
+    {
+        notification.IsRead = true;
+    }
+
+    await _context.SaveChangesAsync();
+
+    // Cache invalidation
+    await _cacheService.InvalidateUserCacheAsync(userId);
+
+    return BaseResponse<string>.SuccessResponse($"{unreadNotifications.Count} notifications marked as read");
+}
+```
+
+---
+
+#### [DELETE] `/api/notification/{id}`
+
+Bildirimi silme.
+
+---
+
+#### [DELETE] `/api/notification/clear-all`
+
+Tüm bildirimleri silme.
+
+---
+
+#### [GET] `/api/notification/settings`
+
+Bildirim ayarlarını getir.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "emailNotifications": true,
+    "pushNotifications": true,
+    "messageNotifications": true,
+    "reportCardNotifications": true,
+    "examNotifications": true,
+    "accountLinkNotifications": true
+  }
+}
+```
+
+---
+
+#### [PUT] `/api/notification/settings`
+
+Bildirim ayarlarını güncelle.
+
+**Request:**
+
+```json
+{
+  "emailNotifications": false,
+  "pushNotifications": true,
+  "messageNotifications": true
+}
+```
+
+---
+
+#### [GET] `/api/notification/my` (Genişletilmiş)
+
+Bildirimleri listele (filtreleme ve pagination).
+
+**Query Parameters:**
+
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `type`: NotificationType filtresi (opsiyonel)
+- `isRead`: Okundu filtresi (opsiyonel)
+- `dateFrom`: Başlangıç tarihi (opsiyonel)
+- `dateTo`: Bitiş tarihi (opsiyonel)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "data": {
+    "unreadCount": 3,
+    "items": [
+      {
+        "id": 501,
+        "title": "Yeni Karne",
+        "message": "Matematik sınavı karneniz hazır",
+        "type": "ReportCard",
+        "actionUrl": "/report/123",
+        "isRead": false,
+        "createdAt": "2026-01-04T14:30:00Z"
+      }
+    ],
+    "totalCount": 50,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+---
+
+### 4.11. Search Controller (YENİ)
+
+Genel arama endpoint'leri.
+
+#### [GET] `/api/search/users`
+
+Kullanıcı arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `role`: UserRole filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/search/institutions`
+
+Kurum arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `status`: InstitutionStatus filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/search/classrooms`
+
+Sınıf arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `institutionId`: Kurum ID filtresi (opsiyonel)
+- `grade`: Sınıf seviyesi filtresi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+#### [GET] `/api/search/exams`
+
+Sınav arama.
+
+**Query Parameters:**
+
+- `query`: Arama metni
+- `institutionId`: Kurum ID filtresi (opsiyonel)
+- `type`: ExamType filtresi (opsiyonel)
+- `dateFrom`: Başlangıç tarihi (opsiyonel)
+- `dateTo`: Bitiş tarihi (opsiyonel)
+- `page`: Sayfa numarası (default: 1)
+- `limit`: Sayfa başına kayıt (default: 20)
+- `forceRefresh`: Cache'i bypass et (default: false)
+
+---
+
+### 4.12. Cache Stratejisi ve Force Refresh
+
+Tüm `GET` endpoint'lerinde cache kullanımı ve `forceRefresh` mekanizması:
+
+**Cache Süreleri:**
+
+- User Profile: 15 dakika
+- User Statistics: 10 dakika
+- User Preferences: 30 dakika
+- Admin Statistics: 5 dakika
+- Institution Details: 5 dakika
+- Classroom Details: 15 dakika
+- Exam List: 2 dakika
+- Conversations: 1 dakika
+- Notifications: 5 dakika
+- Search Results: 5 dakika
+
+**Cache Invalidation:**
+
+- Tüm `Create`, `Update`, `Delete` işlemlerinde ilgili cache'ler temizlenir
+- Pattern-based cache removal kullanılır
+- Specific invalidation method'ları kullanılır (`InvalidateUserCacheAsync`, `InvalidateAdminCacheAsync`, vb.)
+
+**Force Refresh Kullanımı:**
+
+Frontend'de "Yenile" butonu veya kullanıcı isteği ile `forceRefresh=true` parametresi gönderilir:
+
+```javascript
+// Normal istek (cache'den gelir)
+const response = await fetch('/api/user/profile');
+
+// Force refresh (cache bypass)
+const response = await fetch('/api/user/profile?forceRefresh=true');
+```
+
+---
+
 ## 🌍 5. FAZ 3: SOSYAL AĞ VE KEŞFET (Social Network & Discovery)
 
 Bu fazda bireysel kullanıcılar (bağımsız öğretmen ve öğrenciler) soru paylaşabilir, birbirlerini takip edebilir ve keşfedebilir.
@@ -2813,25 +5533,32 @@ Haftalık çalışma istatistikleri.
 ```
 KarneProject/
 ├── Controllers/
-│   ├── BaseController.cs              [Faz 1]
-│   ├── AuthController.cs              [Faz 1]
-│   ├── AdminController.cs             [Faz 1]
-│   ├── InstitutionController.cs       [Faz 2]
-│   ├── ClassroomController.cs         [Faz 2]
-│   ├── ExamController.cs              [Faz 2]
-│   ├── MessageController.cs           [Faz 2]
-│   ├── NotificationController.cs      [Faz 2]
+│   ├── BaseController.cs              [Faz 1] ✅
+│   ├── AuthController.cs              [Faz 1] ✅
+│   ├── AdminController.cs             [Faz 1] ✅
+│   ├── UserController.cs              [Faz 1] ✅
+│   ├── AccountController.cs           [Faz 1] ✅
+│   ├── HealthController.cs            [Faz 1] ✅
+│   ├── InstitutionController.cs       [Faz 2] ✅
+│   ├── ClassroomController.cs         [Faz 2] ✅
+│   ├── ExamController.cs              [Faz 2] ✅
+│   ├── MessageController.cs           [Faz 2] ✅
+│   ├── NotificationController.cs      [Faz 2] ✅
+│   ├── ReportController.cs            [Faz 2] ✅
+│   ├── SearchController.cs            [Faz 2] ✅
 │   ├── SocialController.cs            [Faz 3]
 │   ├── MarketplaceController.cs       [Faz 4]
 │   └── ToolsController.cs             [Faz 5]
 │
 ├── Operations/
-│   ├── AuthOperations.cs              [Faz 1]
-│   ├── InstitutionOperations.cs       [Faz 2]
-│   ├── ClassroomOperations.cs         [Faz 2]
-│   ├── ExamOperations.cs              [Faz 2]
-│   ├── OpticalParserOperations.cs     [Faz 2]
-│   ├── MessageOperations.cs           [Faz 2]
+│   ├── AuthOperations.cs              [Faz 1] ✅
+│   ├── UserOperations.cs              [Faz 1] ✅
+│   ├── AdminOperations.cs              [Faz 1] ✅
+│   ├── AccountOperations.cs           [Faz 1] ✅
+│   ├── InstitutionOperations.cs       [Faz 2] ✅
+│   ├── ClassroomOperations.cs         [Faz 2] ✅
+│   ├── ExamOperations.cs              [Faz 2] ✅
+│   ├── MessageOperations.cs           [Faz 2] ✅
 │   ├── SocialOperations.cs            [Faz 3]
 │   ├── FeedOperations.cs              [Faz 3]
 │   ├── MarketplaceOperations.cs       [Faz 4]
@@ -2839,19 +5566,23 @@ KarneProject/
 │
 ├── Models/
 │   ├── DBs/
-│   │   ├── User.cs                    [Faz 1]
-│   │   ├── Institution.cs             [Faz 1]
-│   │   ├── InstitutionUser.cs         [Faz 1]
-│   │   ├── AccountLink.cs             [Faz 1]
-│   │   ├── AuditLog.cs                [Faz 1]
-│   │   ├── Classroom.cs               [Faz 2]
-│   │   ├── ClassroomStudent.cs        [Faz 2]
-│   │   ├── Exam.cs                    [Faz 2]
-│   │   ├── ExamResult.cs              [Faz 2]
-│   │   ├── Conversation.cs            [Faz 2]
-│   │   ├── ConversationMember.cs      [Faz 2]
-│   │   ├── Message.cs                 [Faz 2]
-│   │   ├── Notification.cs            [Faz 2]
+│   │   ├── User.cs                    [Faz 1] ✅
+│   │   ├── Institution.cs             [Faz 1] ✅
+│   │   ├── InstitutionUser.cs         [Faz 1] ✅
+│   │   ├── AccountLink.cs             [Faz 1] ✅
+│   │   ├── AuditLog.cs                [Faz 1] ✅
+│   │   ├── RefreshToken.cs            [Faz 1] ✅
+│   │   ├── EmailVerification.cs       [Faz 1] ✅
+│   │   ├── PasswordResetToken.cs      [Faz 1] ✅
+│   │   ├── UserPreferences.cs          [Faz 1] ✅
+│   │   ├── Classroom.cs               [Faz 2] ✅
+│   │   ├── ClassroomStudent.cs        [Faz 2] ✅
+│   │   ├── Exam.cs                    [Faz 2] ✅
+│   │   ├── ExamResult.cs              [Faz 2] ✅
+│   │   ├── Conversation.cs            [Faz 2] ✅
+│   │   ├── ConversationMember.cs      [Faz 2] ✅
+│   │   ├── Message.cs                 [Faz 2] ✅
+│   │   ├── Notification.cs            [Faz 2] ✅
 │   │   ├── Lesson.cs                  [Faz 3]
 │   │   ├── Topic.cs                   [Faz 3]
 │   │   ├── Content.cs                 [Faz 3]
@@ -2886,12 +5617,12 @@ KarneProject/
 │       └── ...
 │
 ├── Services/
-│   ├── SessionService.cs              [Faz 1]
-│   ├── AuditService.cs                [Faz 1]
-│   ├── CacheService.cs                [Faz 1]
-│   ├── FileService.cs                 [Faz 1]
-│   ├── NotificationService.cs         [Faz 2]
-│   ├── OpticalParserService.cs        [Faz 2]
+│   ├── SessionService.cs              [Faz 1] ✅
+│   ├── AuditService.cs                [Faz 1] ✅
+│   ├── CacheService.cs                [Faz 1] ✅
+│   ├── FileService.cs                 [Faz 1] ✅
+│   ├── NotificationService.cs         [Faz 2] ✅
+│   ├── OpticalParserService.cs        [Faz 2] ✅
 │   ├── FeedService.cs                 [Faz 3]
 │   └── RedisSearchHelper.cs           [Faz 3]
 │
@@ -2901,8 +5632,9 @@ KarneProject/
 │
 ├── Core/
 │   ├── Middleware/
-│   │   ├── GlobalExceptionMiddleware.cs
-│   │   └── RequestLoggingMiddleware.cs
+│   │   ├── GlobalExceptionMiddleware.cs ✅
+│   │   ├── RequestLoggingMiddleware.cs ✅
+│   │   └── TokenBlacklistMiddleware.cs ✅
 │   ├── Helpers/
 │   │   ├── PasswordHelper.cs
 │   │   └── RedisHelper.cs
@@ -2918,10 +5650,72 @@ KarneProject/
 
 **Tahmini Proje Büyüklüğü:**
 
-- **Dosya Sayısı:** ~85-90 dosya
-- **Kod Satırı:** ~28,000-30,000 satır
-- **Model Sayısı:** 25+ entity
-- **Endpoint Sayısı:** 60-70 endpoint
+- **Dosya Sayısı:** ~90-100 dosya
+- **Kod Satırı:** ~30,000-35,000 satır
+- **Model Sayısı:** 30+ entity
+- **Endpoint Sayısı:** 100+ endpoint
+
+**✅ Tamamlanan Fazlar:**
+
+- **Faz 1:** ✅ %100 Tamamlandı
+  - Authentication (Register, Login, Refresh Token, Forgot/Reset Password)
+  - User Management (Profile, Preferences, Statistics, Activity)
+  - Admin Operations (User CRUD, Institution Management, Audit Logs)
+  - Account Linking (Request, Approve, Reject, List)
+  - Health Check
+  - Middleware'ler (Exception, Logging, Token Blacklist)
+  - Rate Limiting
+  - Cache Service (Pattern-based invalidation, Force Refresh)
+
+- **Faz 2:** ✅ %100 Tamamlandı
+  - Institution Management (CRUD, Members, Statistics)
+  - Classroom Management (CRUD, Students, Bulk Operations)
+  - Exam Management (Create, Upload Optical, Results, Confirm)
+  - Message System (Send, Conversations, History, Search)
+  - Notification System (List, Mark Read, Settings, Clear)
+  - Report Management (Student Reports, Classroom Reports)
+  - Search Controller (Users, Institutions, Classrooms, Exams)
+  - Cache Integration (Tüm endpoint'lerde)
+  - Force Refresh (Tüm GET endpoint'lerde)
+
+**📊 Mevcut Durum:**
+
+- **Toplam Endpoint:** 100+ endpoint implement edildi
+- **Toplam Model:** 30+ entity tanımlandı
+- **Cache Stratejisi:** Pattern-based invalidation ve force refresh mekanizması aktif
+- **Background Jobs:** Hangfire ile ranking ve bulk notification job'ları implement edildi
+- **Rate Limiting:** Global 1000 request/dakika/IP limiti aktif
+- **Middleware'ler:** Exception handling, request logging, token blacklist aktif
+- **SignalR Hubs:** ChatHub ve NotificationHub implement edildi ve aktif
+- **Redis Cache:** IDistributedCache ve IConnectionMultiplexer ile pattern-based operations aktif
+
+**🔧 Teknoloji Kullanım Detayları:**
+
+**Redis (Cache):**
+- ✅ Cache-aside pattern kullanılıyor
+- ✅ Pattern-based cache removal (SCAN ile)
+- ✅ Specific invalidation methods (User, Admin, Institution, Classroom, Exam, vb.)
+- ✅ Force refresh mekanizması (tüm GET endpoint'lerde)
+- ✅ Cache süreleri optimize edildi (1 dakika - 30 dakika arası)
+
+**Hangfire (Background Jobs):**
+- ✅ CalculateRankingsJob (sınav sonuçları yüklendikten sonra)
+- ✅ BulkNotificationJob (toplu bildirim gönderimi)
+- ✅ Automatic retry mekanizması (3 deneme)
+- ✅ Batch processing (50'şer batch)
+
+**SignalR (Real-time):**
+- ✅ ChatHub (mesajlaşma için)
+- ✅ NotificationHub (bildirimler için)
+- ✅ Group-based messaging (conversation ve user groups)
+- ✅ Automatic reconnection desteği
+
+**Eksik Teknolojiler (Faz 3-5 için):**
+- ❌ RediSearch (Full-text search için - Faz 3)
+- ❌ FeedService (Feed algoritması için - Faz 3)
+- ❌ RedisSearchHelper (Content indexing için - Faz 3)
+- ❌ PDF Generation (Karne export için - Faz 2'de planlandı ama henüz implement edilmedi)
+- ❌ Serilog (Structured logging - opsiyonel)
 
 ---
 
@@ -2989,11 +5783,67 @@ dotnet add package Microsoft.Extensions.Caching.StackExchangeRedis
 **Setup (Program.cs):**
 
 ```csharp
+// Redis Cache (IDistributedCache)
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("Redis");
     options.InstanceName = "KarneProject_";
 });
+
+// Redis Connection Multiplexer (Pattern-based operations için)
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    ConnectionMultiplexer.Connect(redisConnectionString));
+```
+
+**Mevcut Kullanım (Faz 1-2):**
+
+✅ **CacheService** implement edildi:
+- Pattern-based cache removal (SCAN kullanarak)
+- Specific invalidation methods (`InvalidateUserCacheAsync`, `InvalidateAdminCacheAsync`, vb.)
+- Force refresh mekanizması (tüm GET endpoint'lerde `forceRefresh` parametresi)
+- Cache-aside pattern (önce cache'e bak, yoksa DB'den çek ve cache'e yaz)
+
+**Cache Süreleri:**
+- User Profile: 15 dakika
+- User Statistics: 10 dakika
+- Admin Statistics: 5 dakika
+- Institution Details: 5 dakika
+- Classroom Details: 15 dakika
+- Exam List: 2 dakika
+- Conversations: 1 dakika
+- Notifications: 5 dakika
+- Search Results: 5 dakika
+
+**Kullanım Örneği:**
+
+```csharp
+// CacheService.cs
+public async Task<T?> GetAsync<T>(string key) where T : class
+{
+    var cached = await _cache.GetStringAsync(key);
+    if (cached == null) return null;
+    return JsonSerializer.Deserialize<T>(cached);
+}
+
+public async Task SetAsync<T>(string key, T value, TimeSpan expiration) where T : class
+{
+    var serialized = JsonSerializer.Serialize(value);
+    await _cache.SetStringAsync(key, serialized, new DistributedCacheEntryOptions
+    {
+        AbsoluteExpirationRelativeToNow = expiration
+    });
+}
+
+// Pattern-based removal (IConnectionMultiplexer kullanarak)
+public async Task RemoveByPatternAsync(string pattern)
+{
+    var server = _redis.GetServer(_redis.GetEndPoints().First());
+    var keys = server.Keys(pattern: $"*{pattern}*").ToList();
+    foreach (var key in keys)
+    {
+        await _cache.RemoveAsync(key!);
+    }
+}
 ```
 
 #### **Redis RediSearch Modülü**
@@ -3017,24 +5867,118 @@ redis-server --loadmodule ./redisearch.so
 
 **Neden:** Full-text search ve filtering için SQL'den 50-100x daha hızlı. Keşfet sayfası için kritik.
 
+**Mevcut Durum:**
+- ❌ **Henüz implement edilmedi** (Faz 3 için planlandı)
+- ✅ Dökümanlarda detaylı açıklama mevcut (Faz 3 bölümünde)
+
+**Gelecek Kullanım (Faz 3):**
+
+**RedisSearchHelper.cs** servisi oluşturulacak:
+- Content indexing (soru, post, announcement)
+- Full-text search (title, description, tags)
+- Filtering (lesson, topic, difficulty)
+- Sorting (popular, recent, trending)
+
+**Kullanım Örneği (Planlanan):**
+
+```csharp
+// RedisSearchHelper.cs
+public static async Task CreateContentIndexAsync(IDatabase redis)
+{
+    await redis.ExecuteAsync("FT.CREATE", "contentIdx",
+        "ON", "JSON",
+        "PREFIX", "1", "content:",
+        "SCHEMA",
+        "$.title", "AS", "title", "TEXT",
+        "$.description", "AS", "description", "TEXT",
+        "$.tags", "AS", "tags", "TAG",
+        "$.lessonId", "AS", "lessonId", "NUMERIC",
+        "$.topicId", "AS", "topicId", "NUMERIC",
+        "$.difficulty", "AS", "difficulty", "NUMERIC"
+    );
+}
+
+public static async Task<List<Content>> SearchContentsAsync(
+    string searchTerm,
+    int? lessonId,
+    int? topicId,
+    DifficultyLevel? difficulty,
+    IDatabase redis,
+    ApplicationContext context)
+{
+    // RediSearch query oluştur ve çalıştır
+    // Redis'ten gelen ID'leri parse et
+    // DB'den detaylı bilgileri çek
+}
+```
+
 #### **Background Jobs (Hangfire)**
 
 ```bash
+dotnet add package Hangfire
 dotnet add package Hangfire.AspNetCore
 dotnet add package Hangfire.SqlServer
 ```
 
 **Neden:** Sıralama hesaplama, feed generation gibi uzun süren işleri arka planda çalıştırmak için.
 
-**Setup:**
+**Setup (Program.cs):**
 
 ```csharp
-builder.Services.AddHangfire(config =>
-    config.UseSqlServerStorage(connectionString));
+// Hangfire Configuration
+builder.Services.AddHangfire(config => config
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UseSqlServerStorage(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-app.UseHangfireServer();
-app.UseHangfireDashboard("/hangfire"); // Admin dashboard
+builder.Services.AddHangfireServer();
+
+// Dashboard (Production'da authorization eklenmeli)
+app.UseHangfireDashboard("/hangfire");
 ```
+
+**Mevcut Kullanım (Faz 1-2):**
+
+✅ **CalculateRankingsJob** implement edildi:
+- Sınav sonuçları yüklendikten sonra sıralama hesaplama
+- Institution rank ve class rank hesaplama
+- Automatic retry (3 deneme)
+
+✅ **BulkNotificationJob** implement edildi:
+- Toplu bildirim gönderme (batch processing ile)
+- 50'şer batch halinde gönderim
+- Batch'ler arası 100ms delay
+
+**Kullanım Örneği:**
+
+```csharp
+// ExamOperations.cs - Optik form yüklendikten sonra
+BackgroundJob.Enqueue<CalculateRankingsJob>(job => job.Execute(examId));
+
+// ExamOperations.cs - Sonuçlar onaylandıktan sonra
+BackgroundJob.Enqueue<BulkNotificationJob>(job => job.Execute(examId));
+```
+
+**Job Implementation:**
+
+```csharp
+// Jobs/CalculateRankingsJob.cs
+public class CalculateRankingsJob
+{
+    [AutomaticRetry(Attempts = 3)]
+    public async Task Execute(int examId)
+    {
+        // Sıralama hesaplama logic
+        // Institution rank ve class rank güncelleme
+    }
+}
+```
+
+**Gelecek Kullanım (Faz 3):**
+- Feed generation job (günlük)
+- Content indexing job (RediSearch için)
+- Cache invalidation job (günlük temizlik)
 
 #### **JSON Serialization**
 
@@ -3122,27 +6066,101 @@ const data = {
 <Radar data={data} />;
 ```
 
-#### **SignalR Client**
+#### **SignalR (Real-time Communication)**
 
-**Neden:** Real-time mesajlaşma ve bildirimler için gerekli.
+**Backend Setup (Program.cs):**
 
-**Kurulum ve kullanım:**
+```csharp
+// SignalR Service Registration
+builder.Services.AddSignalR();
+
+// Hub Mapping
+app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<NotificationHub>("/hubs/notification");
+```
+
+**Mevcut Kullanım (Faz 1-2):**
+
+✅ **ChatHub** implement edildi:
+- Conversation group management (`JoinConversation`, `LeaveConversation`)
+- Real-time mesaj gönderimi (`ReceiveMessage` event)
+- Group-based messaging (sınıf grupları için)
+
+✅ **NotificationHub** implement edildi:
+- User-specific groups (`User_{userId}`)
+- Real-time bildirim gönderimi (`ReceiveNotification` event)
+- Automatic group assignment on connection
+
+**Backend Kullanım Örneği:**
+
+```csharp
+// MessageOperations.cs
+public async Task<BaseResponse<MessageDto>> SendMessageAsync(...)
+{
+    // Mesaj DB'ye kaydedilir
+    await _context.SaveChangesAsync();
+    
+    // SignalR ile real-time gönderim
+    await _chatHub.Clients.Group($"Conversation_{conversationId}")
+        .SendAsync("ReceiveMessage", messageDto);
+}
+
+// NotificationService.cs
+public async Task SendNotificationAsync(...)
+{
+    // Bildirim DB'ye kaydedilir
+    await _context.SaveChangesAsync();
+    
+    // SignalR ile real-time gönderim
+    await _hubContext.Clients.Group($"User_{userId}")
+        .SendAsync("ReceiveNotification", notification);
+}
+```
+
+**Frontend Kullanımı:**
 
 ```javascript
 import * as signalR from "@microsoft/signalr";
 
-const connection = new signalR.HubConnectionBuilder()
+// Chat Hub Connection
+const chatConnection = new signalR.HubConnectionBuilder()
   .withUrl("/hubs/chat", {
     accessTokenFactory: () => localStorage.getItem("token"),
   })
   .withAutomaticReconnect()
   .build();
 
-await connection.start();
-connection.on("ReceiveMessage", (message) => {
-  console.log("Yeni mesaj:", message);
+await chatConnection.start();
+
+// Conversation'a katılma
+await chatConnection.invoke("JoinConversation", conversationId);
+
+// Mesaj dinleme
+chatConnection.on("ReceiveMessage", (message) => {
+  appendMessageToChat(message);
+});
+
+// Notification Hub Connection
+const notificationConnection = new signalR.HubConnectionBuilder()
+  .withUrl("/hubs/notification", {
+    accessTokenFactory: () => localStorage.getItem("token"),
+  })
+  .withAutomaticReconnect()
+  .build();
+
+await notificationConnection.start();
+
+// Bildirim dinleme
+notificationConnection.on("ReceiveNotification", (notification) => {
+  updateNotificationBadge();
+  showToast(notification.title, notification.message);
 });
 ```
+
+**Gelecek Kullanım (Faz 3):**
+- Feed updates (yeni içerik paylaşıldığında)
+- Like/Comment notifications (real-time)
+- Follow notifications
 
 ---
 
@@ -3322,34 +6340,48 @@ dotnet add package SendGrid
 
 ---
 
-## 📋 9.8. Özet: Kullanılan Tüm Teknolojiler
+## 📋 9.8. Özet: Kullanılan Tüm Teknolojiler ve Durumları
 
-| Teknoloji            | Amaç                 | Kurulum      | Kendi Kodumuz mu?      |
-| -------------------- | -------------------- | ------------ | ---------------------- |
-| **ASP.NET Core 8**   | Backend framework    | SDK indir    | -                      |
-| **EF Core**          | ORM                  | NuGet        | -                      |
-| **SQL Server**       | Database             | İndir/Cloud  | -                      |
-| **Redis**            | Cache + Search       | Docker       | -                      |
-| **RediSearch**       | Full-text search     | Redis module | ❌ Açık kaynak module  |
-| **SignalR**          | Real-time            | Built-in     | -                      |
-| **FluentValidation** | Input validation     | NuGet        | ❌ Açık kaynak paket   |
-| **Hangfire**         | Background jobs      | NuGet        | ❌ Açık kaynak paket   |
-| **Serilog**          | Logging              | NuGet        | ❌ Açık kaynak paket   |
-| **PuppeteerSharp**   | PDF generation       | NuGet        | ❌ Açık kaynak paket   |
-| **Chart.js**         | Grafikler (frontend) | npm          | ❌ Açık kaynak library |
-| **Feed Algorithm**   | Sosyal feed          | -            | ✅ Kendi algoritmamız  |
-| **Optical Parser**   | TXT parse            | -            | ✅ Kendi algoritmamız  |
-| **Net Calculation**  | Sınav hesaplama      | -            | ✅ Kendi algoritmamız  |
+| Teknoloji            | Amaç                 | Kurulum      | Faz | Durum | Kendi Kodumuz mu?      |
+| -------------------- | -------------------- | ------------ | --- | ----- | ---------------------- |
+| **ASP.NET Core 8**   | Backend framework    | SDK indir    | 1   | ✅    | -                      |
+| **EF Core**          | ORM                  | NuGet        | 1   | ✅    | -                      |
+| **SQL Server**       | Database             | İndir/Cloud  | 1   | ✅    | -                      |
+| **Redis**            | Cache                | Docker       | 1-2 | ✅    | -                      |
+| **RediSearch**       | Full-text search     | Redis module | 3   | ❌    | ❌ Açık kaynak module  |
+| **SignalR**          | Real-time            | Built-in     | 2   | ✅    | -                      |
+| **FluentValidation** | Input validation     | NuGet        | 1   | ✅    | ❌ Açık kaynak paket   |
+| **Hangfire**         | Background jobs      | NuGet        | 2   | ✅    | ❌ Açık kaynak paket   |
+| **Serilog**          | Logging              | NuGet        | -   | ❌    | ❌ Açık kaynak paket   |
+| **PuppeteerSharp**   | PDF generation       | NuGet        | 2   | ❌    | ❌ Açık kaynak paket   |
+| **Chart.js**         | Grafikler (frontend) | npm          | 2   | ❌    | ❌ Açık kaynak library |
+| **Feed Algorithm**   | Sosyal feed          | -            | 3   | ❌    | ✅ Kendi algoritmamız  |
+| **Optical Parser**   | TXT parse            | -            | 2   | ✅    | ✅ Kendi algoritmamız  |
+| **Net Calculation**  | Sınav hesaplama      | -            | 2   | ✅    | ✅ Kendi algoritmamız  |
+| **CacheService**     | Cache yönetimi       | -            | 1-2 | ✅    | ✅ Kendi servisimiz    |
+| **Rate Limiting**    | API koruması         | Built-in     | 1   | ✅    | -                      |
+
+**Açıklama:**
+- ✅ **Tamamlandı:** Teknoloji implement edildi ve aktif kullanılıyor
+- ❌ **Planlandı:** Teknoloji dökümanlarda belirtilmiş ama henüz implement edilmedi
+- **Faz:** Hangi fazda kullanılacağı/kullanıldığı
 
 **Toplam Kullanılan Paket:** ~15 NuGet paketi + 5 npm paketi
 
-**Kendi Yazdığımız Algoritmalar:**
+**Kendi Yazdığımız Algoritmalar ve Servisler:**
 
-1. ✅ Feed Scoring Algorithm (Social)
-2. ✅ Optical TXT Parser (Exam)
-3. ✅ Net Calculation Algorithm (Exam)
-4. ✅ Topic-based Analysis (Exam)
-5. ✅ Class Ranking Algorithm (Exam)
+**Tamamlanan (Faz 1-2):**
+1. ✅ **Optical TXT Parser** (Exam) - `OpticalParserService.cs`
+2. ✅ **Net Calculation Algorithm** (Exam) - `ExamOperations.cs`
+3. ✅ **Topic-based Analysis** (Exam) - `ExamOperations.cs`
+4. ✅ **Class Ranking Algorithm** (Exam) - `CalculateRankingsJob.cs`
+5. ✅ **CacheService** - Pattern-based invalidation, force refresh
+6. ✅ **Cache Invalidation Strategy** - Specific methods per entity
+
+**Planlanan (Faz 3):**
+1. ❌ **Feed Scoring Algorithm** (Social) - `FeedService.cs`
+2. ❌ **RedisSearchHelper** - Content indexing ve search
+3. ❌ **Content Recommendation Algorithm** - Kişiselleştirilmiş öneriler
 
 **İndirilen Açık Kaynak:**
 
@@ -3403,17 +6435,287 @@ curl -X POST /api/admin/create-superuser
 ### Güvenlik Kontrol Listesi
 
 - ✅ JWT token expiration (7 gün)
+- ✅ Refresh Token sistemi (30 gün)
 - ✅ Password hashing (Salt + SHA256)
+- ✅ Email Verification sistemi
+- ✅ Password Reset (Forgot/Reset) sistemi
+- ✅ Token Blacklist (Logout ve güvenlik ihlali)
 - ✅ SQL Injection koruması (EF Core parametrized)
 - ✅ XSS koruması (input sanitization)
 - ✅ CORS policy tanımlı
-- ✅ Rate limiting (60 req/min)
+- ✅ Rate limiting (1000 req/min - çok geniş limit)
 - ✅ Audit logging tüm CUD işlemlerde
+- ✅ Global Exception Handler
+- ✅ Request Logging
+
+---
+
+## 📊 11. PROJE DURUMU VE TAMAMLANAN ÖZELLİKLER
+
+### ✅ Faz 1: Foundation - %100 Tamamlandı
+
+**Authentication & Authorization:**
+- ✅ User Registration
+- ✅ User Login (JWT Token)
+- ✅ Refresh Token Sistemi
+- ✅ Email Verification
+- ✅ Password Reset (Forgot/Reset)
+- ✅ Token Blacklist (Logout)
+
+**User Management:**
+- ✅ Get Profile (kendi profili)
+- ✅ Get User Profile (başka kullanıcı - privacy kontrolü ile)
+- ✅ Update Profile
+- ✅ Change Password
+- ✅ Upload Profile Image
+- ✅ Update Email
+- ✅ Delete Account (soft delete)
+- ✅ Get Statistics
+- ✅ Get Activity
+- ✅ Search Users
+
+**User Preferences:**
+- ✅ Get Preferences
+- ✅ Update Preferences
+- ✅ Update Profile Layout
+- ✅ Update Dashboard Layout
+
+**Admin Operations:**
+- ✅ Approve Institution
+- ✅ Get Pending Institutions
+- ✅ Get All Users (pagination, filtreleme, arama)
+- ✅ Get User Details
+- ✅ Update User
+- ✅ Update User Status
+- ✅ Delete User
+- ✅ Reset User Password
+- ✅ Get All Institutions
+- ✅ Get Institution Details
+- ✅ Reject Institution
+- ✅ Update Institution Status
+- ✅ Extend Subscription
+- ✅ Create Admin
+- ✅ Get All Admins
+- ✅ Get Statistics
+- ✅ Get Audit Logs
+- ✅ Get User Audit Logs
+
+**Account Linking:**
+- ✅ Link Request
+- ✅ Link Approve
+- ✅ Link Reject
+- ✅ Get Link Requests
+- ✅ Get Linked Accounts
+- ✅ Delete Account Link
+
+**Health Check:**
+- ✅ Health Endpoint
+
+**Middleware:**
+- ✅ GlobalExceptionMiddleware
+- ✅ RequestLoggingMiddleware
+- ✅ TokenBlacklistMiddleware
+
+**Rate Limiting:**
+- ✅ Global Rate Limiter (1000 req/min/IP)
+
+**Cache Service:**
+- ✅ Pattern-based cache removal
+- ✅ Specific invalidation methods
+- ✅ Force refresh mekanizması
+
+---
+
+### ✅ Faz 2: Kurum Yönetimi - %100 Tamamlandı
+
+**Institution Management:**
+- ✅ Get My Institutions
+- ✅ Get Institution Details
+- ✅ Update Institution
+- ✅ Get Institution Members
+- ✅ Add Member
+- ✅ Remove Member
+- ✅ Update Member Role
+- ✅ Get Institution Statistics
+
+**Classroom Management:**
+- ✅ Create Classroom
+- ✅ Get Classroom Details
+- ✅ Get Institution Classrooms
+- ✅ Update Classroom
+- ✅ Delete Classroom
+- ✅ Add Student
+- ✅ Add Students (Bulk)
+- ✅ Remove Student
+- ✅ Get Classroom Students
+
+**Exam Management:**
+- ✅ Create Exam
+- ✅ Process Optical File
+- ✅ Confirm Results
+- ✅ Get Exams (filtreleme, pagination)
+- ✅ Get Exam Details
+- ✅ Get Exam Results
+
+**Message System:**
+- ✅ Start Conversation
+- ✅ Send Message
+- ✅ Get Conversations
+- ✅ Get Conversation Details
+- ✅ Get Message History
+- ✅ Update Conversation
+- ✅ Delete Conversation
+- ✅ Leave Conversation
+- ✅ Delete Message
+- ✅ Update Message
+- ✅ Mark Conversation as Read
+- ✅ Send to Class
+- ✅ Search Messages
+
+**Notification System:**
+- ✅ Get My Notifications (filtreleme, pagination)
+- ✅ Mark as Read
+- ✅ Mark All as Read
+- ✅ Delete Notification
+- ✅ Clear All Notifications
+- ✅ Get Notification Settings
+- ✅ Update Notification Settings
+
+**Report Management:**
+- ✅ Get Student Report
+- ✅ Get All Student Reports
+- ✅ Get Classroom Reports
+
+**Search:**
+- ✅ Search Users
+- ✅ Search Institutions
+- ✅ Search Classrooms
+- ✅ Search Exams
+
+**Cache Integration:**
+- ✅ Tüm GET endpoint'lerde cache kullanımı
+- ✅ Tüm CUD işlemlerde cache invalidation
+- ✅ Force refresh mekanizması (tüm GET endpoint'lerde)
+
+**Background Jobs:**
+- ✅ Calculate Rankings Job (Hangfire)
+- ✅ Bulk Notification Job (Hangfire)
+- ✅ Cache Invalidation Job (Hangfire - günlük)
+
+---
+
+### 📋 Özet: Tamamlanan Endpoint Sayıları
+
+| Controller | Endpoint Sayısı | Durum |
+|------------|----------------|-------|
+| AuthController | 7 | ✅ Tamamlandı |
+| UserController | 17 | ✅ Tamamlandı |
+| AdminController | 18 | ✅ Tamamlandı |
+| AccountController | 6 | ✅ Tamamlandı |
+| HealthController | 1 | ✅ Tamamlandı |
+| InstitutionController | 8 | ✅ Tamamlandı |
+| ClassroomController | 9 | ✅ Tamamlandı |
+| ExamController | 6 | ✅ Tamamlandı |
+| MessageController | 13 | ✅ Tamamlandı |
+| NotificationController | 7 | ✅ Tamamlandı |
+| ReportController | 3 | ✅ Tamamlandı |
+| SearchController | 4 | ✅ Tamamlandı |
+| **TOPLAM** | **99+** | **✅ Faz 1-2 Tamamlandı** |
+
+---
+
+### 🔄 Sonraki Adımlar
+
+**Faz 3: Sosyal Ağ ve Keşfet** (Henüz başlanmadı)
+- Content Paylaşımı (Soru, Post, Announcement)
+- Feed Algoritması
+- Keşfet ve Arama (RediSearch)
+- Follow/Unfollow
+- Like/Comment
+- Social Interactions
+
+**Faz 4: Marketplace ve Ödeme** (Henüz başlanmadı)
+- Private Lesson Ads
+- Marketplace Search
+- Payment Integration
+
+**Faz 5: Araçlar** (Henüz başlanmadı)
+- Schedule/Timetable
+- Study Timer
+- Statistics
 
 ---
 
 **📘 Döküman Sonu**
 
-_Bu döküman, KarneProject'in backend altyapısının tam teknik şartnamesini içermektedir. Tüm modeller, endpointler, algoritmalar, UI akışları ve geliştirme adımları detaylandırılmıştır. Toplam 3000+ satır comprehensive blueprint._
+_Bu döküman, KarneProject'in backend altyapısının tam teknik şartnamesini içermektedir. Tüm modeller, endpointler, algoritmalar, UI akışları ve geliştirme adımları detaylandırılmıştır. Toplam 6600+ satır comprehensive blueprint._
 
-**Kod yazmaya hazırsınız!** 🚀
+---
+
+## 📍 12. MEVCUT DURUM ÖZETİ
+
+### ✅ Tamamlanan Fazlar
+
+**Faz 1: Foundation - %100 Tamamlandı**
+- Authentication & Authorization (JWT, Refresh Token, Email Verification, Password Reset)
+- User Management (17 endpoint)
+- Admin Operations (18 endpoint)
+- Account Linking (6 endpoint)
+- Health Check
+- Middleware'ler (Exception, Logging, Token Blacklist)
+- Rate Limiting (1000 req/min/IP)
+- Cache Service (Pattern-based invalidation, Force Refresh)
+
+**Faz 2: Kurum Yönetimi - %100 Tamamlandı**
+- Institution Management (8 endpoint)
+- Classroom Management (9 endpoint)
+- Exam Management (6 endpoint)
+- Message System (13 endpoint) - SignalR ile real-time
+- Notification System (7 endpoint) - SignalR ile real-time
+- Report Management (3 endpoint)
+- Search Controller (4 endpoint)
+- Background Jobs (Hangfire: Ranking, Bulk Notification)
+
+### 🔧 Aktif Teknolojiler
+
+**✅ Implement Edilmiş ve Aktif:**
+- Redis Cache (IDistributedCache + IConnectionMultiplexer)
+- Hangfire (Background Jobs)
+- SignalR (ChatHub, NotificationHub)
+- Rate Limiting (.NET 8 built-in)
+- FluentValidation
+- Cache-aside pattern
+- Pattern-based cache removal
+- Force refresh mekanizması
+
+**❌ Planlanmış (Faz 3-5 için):**
+- RediSearch (Full-text search)
+- FeedService (Feed algoritması)
+- RedisSearchHelper (Content indexing)
+- PDF Generation (PuppeteerSharp)
+- Serilog (Structured logging - opsiyonel)
+
+### 📊 İstatistikler
+
+- **Toplam Endpoint:** 99+ endpoint
+- **Toplam Model:** 30+ entity
+- **Toplam Controller:** 12 controller
+- **Background Jobs:** 2 job (Hangfire)
+- **SignalR Hubs:** 2 hub (ChatHub, NotificationHub)
+- **Cache Süreleri:** 1 dakika - 30 dakika (optimize edilmiş)
+
+### 🎯 Şu Anki Konum
+
+**✅ Faz 1 ve Faz 2 tamamlandı!**
+
+**Sonraki Adım:** Faz 3 (Sosyal Ağ ve Keşfet) implementasyonuna başlanabilir.
+
+**Faz 3 için Gerekenler:**
+1. RediSearch modülü kurulumu (Redis sunucusuna)
+2. RedisSearchHelper servisi implementasyonu
+3. FeedService servisi implementasyonu
+4. Content/Comment/Interaction modelleri
+5. SocialController ve SocialOperations
+6. Feed algoritması implementasyonu
+
+**✅ Faz 1 ve Faz 2 tamamlandı! Faz 3'e geçmeye hazırsınız!** 🚀

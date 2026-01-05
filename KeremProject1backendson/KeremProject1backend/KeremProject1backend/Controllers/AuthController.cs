@@ -63,4 +63,43 @@ public class AuthController : ControllerBase
             Data = new { UserId = userId, Claims = User.Claims.Select(c => new { c.Type, c.Value }) }
         });
     }
+
+    [HttpPost("apply-institution")]
+    [Authorize]
+    public async Task<IActionResult> ApplyInstitution([FromBody] Models.DTOs.Requests.ApplyInstitutionRequest request)
+    {
+        var userId = _sessionService.GetCurrentUserId(User);
+        var result = await AuthOperations.ApplyInstitutionAsync(request, userId, _context, _auditService);
+
+        if (!result.Success)
+            return BadRequest(result);
+
+        return Ok(result);
+    }
+
+    [HttpPost("refresh-token")]
+    [AllowAnonymous]
+    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
+    {
+        var result = await AuthOperations.RefreshTokenAsync(request, _context, _sessionService, _auditService);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, [FromServices] UserOperations userOperations)
+    {
+        var result = await userOperations.ForgotPasswordAsync(request);
+        return Ok(result);
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, [FromServices] UserOperations userOperations)
+    {
+        var result = await userOperations.ResetPasswordAsync(request);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }

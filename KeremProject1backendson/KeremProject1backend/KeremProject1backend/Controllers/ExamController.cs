@@ -1,5 +1,6 @@
 using KeremProject1backend.Operations;
 using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using KeremProject1backend.Services;
@@ -43,6 +44,45 @@ public class ExamController : BaseController
     public async Task<IActionResult> ConfirmResults(int id)
     {
         var result = await _examOperations.ConfirmResultsAndNotifyAsync(id);
+        return Ok(result);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetExams(
+        [FromQuery] int? institutionId = null,
+        [FromQuery] int? classroomId = null,
+        [FromQuery] ExamType? type = null,
+        [FromQuery] DateTime? dateFrom = null,
+        [FromQuery] DateTime? dateTo = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20,
+        [FromQuery] bool forceRefresh = false)
+    {
+        var result = await _examOperations.GetExamsAsync(institutionId, classroomId, type, dateFrom, dateTo, page, limit, forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetExam(int id, [FromQuery] bool forceRefresh = false)
+    {
+        var result = await _examOperations.GetExamAsync(id, forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("{id}/results")]
+    public async Task<IActionResult> GetExamResults(
+        int id,
+        [FromQuery] int? studentId = null,
+        [FromQuery] int? classroomId = null,
+        [FromQuery] bool? isConfirmed = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 50,
+        [FromQuery] bool forceRefresh = false)
+    {
+        var result = await _examOperations.GetExamResultsAsync(id, studentId, classroomId, isConfirmed, page, limit, forceRefresh);
+        if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 }

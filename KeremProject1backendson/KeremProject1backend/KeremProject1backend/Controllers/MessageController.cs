@@ -1,6 +1,7 @@
 using KeremProject1backend.Operations;
 using KeremProject1backend.Models.DTOs;
 using KeremProject1backend.Models.Enums;
+using KeremProject1backend.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -9,11 +10,11 @@ namespace KeremProject1backend.Controllers;
 [Authorize]
 [ApiController]
 [Route("api/[controller]")]
-public class MessageController : ControllerBase
+public class MessageController : BaseController
 {
     private readonly MessageOperations _messageOperations;
 
-    public MessageController(MessageOperations messageOperations)
+    public MessageController(MessageOperations messageOperations, SessionService sessionService) : base(sessionService)
     {
         _messageOperations = messageOperations;
     }
@@ -49,6 +50,101 @@ public class MessageController : ControllerBase
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    [HttpGet("conversations")]
+    public async Task<IActionResult> GetConversations([FromQuery] int page = 1, [FromQuery] int limit = 20, [FromQuery] bool forceRefresh = false)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.GetConversationsAsync(userId, page, limit, forceRefresh);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("conversation/{id}")]
+    public async Task<IActionResult> GetConversation(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.GetConversationAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("conversation/{id}")]
+    public async Task<IActionResult> UpdateConversation(int id, [FromBody] UpdateConversationRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.UpdateConversationAsync(id, request.Title, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("conversation/{id}")]
+    public async Task<IActionResult> DeleteConversation(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.DeleteConversationAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("conversation/{id}/leave")]
+    public async Task<IActionResult> LeaveConversation(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.LeaveConversationAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteMessage(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.DeleteMessageAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateMessage(int id, [FromBody] UpdateMessageRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.UpdateMessageAsync(id, request.Content, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPost("conversation/{id}/mark-read")]
+    public async Task<IActionResult> MarkRead(int id)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.MarkReadAsync(id, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpGet("search")]
+    public async Task<IActionResult> SearchMessages(
+        [FromQuery] string query,
+        [FromQuery] int? conversationId = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int limit = 20)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _messageOperations.SearchMessagesAsync(query, conversationId, userId, page, limit);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+}
+
+public class UpdateConversationRequest
+{
+    public string Title { get; set; } = string.Empty;
+}
+
+public class UpdateMessageRequest
+{
+    public string Content { get; set; } = string.Empty;
 }
 
 public class StartConversationRequest

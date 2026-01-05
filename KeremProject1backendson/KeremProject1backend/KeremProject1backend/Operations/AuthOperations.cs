@@ -80,18 +80,34 @@ public static class AuthOperations
         // 4. Generate token
         var token = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
 
-        // 5. Update LastLogin
+        // 5. Generate refresh token
+        var refreshToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+        
+        var refreshTokenEntity = new RefreshToken
+        {
+            UserId = user.Id,
+            Token = refreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(30), // 30 days for refresh token
+            CreatedAt = DateTime.UtcNow
+        };
+
+        context.RefreshTokens.Add(refreshTokenEntity);
+
+        // 6. Update LastLogin
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync();
 
-        // 6. Audit log
+        // 7. Audit log
         await auditService.LogAsync(user.Id, "UserLoggedIn", null);
 
-        // 7. Build response
+        // 8. Build response
         var response = new LoginResponse
         {
             Token = token,
+            RefreshToken = refreshToken,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
+            RefreshTokenExpiresAt = refreshTokenEntity.ExpiresAt,
             User = new UserDto
             {
                 Id = user.Id,
@@ -191,5 +207,74 @@ public static class AuthOperations
             .ToListAsync();
 
         return BaseResponse<List<Institution>>.SuccessResponse(pending);
+    }
+
+    public static async Task<BaseResponse<LoginResponse>> RefreshTokenAsync(
+        RefreshTokenRequest request,
+        ApplicationContext context,
+        SessionService sessionService,
+        AuditService auditService)
+    {
+        var refreshToken = await context.RefreshTokens
+            .Include(rt => rt.User)
+                .ThenInclude(u => u.InstitutionMemberships)
+                    .ThenInclude(im => im.Institution)
+            .FirstOrDefaultAsync(rt => rt.Token == request.RefreshToken && !rt.IsRevoked);
+
+        if (refreshToken == null)
+            return BaseResponse<LoginResponse>.ErrorResponse("Invalid refresh token", ErrorCodes.AuthInvalidCredentials);
+
+        if (refreshToken.ExpiresAt < DateTime.UtcNow)
+            return BaseResponse<LoginResponse>.ErrorResponse("Refresh token has expired", ErrorCodes.AuthInvalidCredentials);
+
+        var user = refreshToken.User;
+
+        // Revoke old refresh token
+        refreshToken.IsRevoked = true;
+        refreshToken.RevokedAt = DateTime.UtcNow;
+
+        // Generate new access token
+        var newToken = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
+
+        // Generate new refresh token
+        var newRefreshToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
+            .Replace("+", "-").Replace("/", "_").Replace("=", "");
+
+        var newRefreshTokenEntity = new RefreshToken
+        {
+            UserId = user.Id,
+            Token = newRefreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(30),
+            CreatedAt = DateTime.UtcNow
+        };
+
+        context.RefreshTokens.Add(newRefreshTokenEntity);
+        await context.SaveChangesAsync();
+
+        await auditService.LogAsync(user.Id, "TokenRefreshed", null);
+
+        var response = new LoginResponse
+        {
+            Token = newToken,
+            RefreshToken = newRefreshToken,
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            RefreshTokenExpiresAt = newRefreshTokenEntity.ExpiresAt,
+            User = new UserDto
+            {
+                Id = user.Id,
+                FullName = user.FullName,
+                Username = user.Username,
+                Email = user.Email,
+                GlobalRole = user.GlobalRole.ToString(),
+                Institutions = user.InstitutionMemberships.Select(im => new InstitutionSummaryDto
+                {
+                    Id = im.InstitutionId,
+                    Name = im.Institution.Name,
+                    Role = im.Role.ToString()
+                }).ToList()
+            }
+        };
+
+        return BaseResponse<LoginResponse>.SuccessResponse(response);
     }
 }
