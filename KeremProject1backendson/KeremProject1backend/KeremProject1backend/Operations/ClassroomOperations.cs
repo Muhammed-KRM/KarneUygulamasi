@@ -13,23 +13,39 @@ public class ClassroomOperations
     private readonly ApplicationContext _context;
     private readonly SessionService _sessionService;
     private readonly CacheService _cacheService;
+    private readonly AuthorizationService _authorizationService;
 
-    public ClassroomOperations(ApplicationContext context, SessionService sessionService, CacheService cacheService)
+    public ClassroomOperations(
+        ApplicationContext context, 
+        SessionService sessionService, 
+        CacheService cacheService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<int>> CreateClassroomAsync(int institutionId, string name, int grade)
     {
-        var currentUserId = _sessionService.GetUserId();
-        var isManager = await _context.Institutions.AnyAsync(i => i.Id == institutionId && i.ManagerUserId == currentUserId);
+        // 1. YETKİ KONTROLÜ (EN BAŞTA - ZORUNLU!)
+        // Manager, AdminAdmin veya Admin olmalı
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Manager, 
+            UserRole.AdminAdmin, 
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<int>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok", 
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-        {
-            return BaseResponse<int>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
-        }
+        // 2. Validation
+        if (string.IsNullOrWhiteSpace(name))
+            return BaseResponse<int>.ErrorResponse("Sınıf adı gereklidir", ErrorCodes.ValidationFailed);
+
+        if (grade < 1 || grade > 12)
+            return BaseResponse<int>.ErrorResponse("Geçersiz sınıf seviyesi", ErrorCodes.ValidationFailed);
 
         var classroom = new Classroom
         {
@@ -66,6 +82,18 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<bool>> AddStudentToClassroomAsync(int classroomId, int studentInstitutionUserId)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         // studentInstitutionUserId is the ID from InstitutionUsers table
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.Unauthorized); // Using existing code for now or will add Generic
@@ -97,6 +125,18 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<bool>> AddStudentsToClassroomAsync(int classroomId, List<int> studentInstitutionUserIds)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
 
@@ -206,16 +246,19 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<string>> UpdateClassroomAsync(int classroomId, UpdateClassroomRequest request, int userId)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<string>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
-
-        // Authorization: Only manager can update
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == classroom.InstitutionId && i.ManagerUserId == userId);
-
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-            return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         if (!string.IsNullOrWhiteSpace(request.Name))
             classroom.Name = request.Name;
@@ -234,16 +277,19 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<string>> DeleteClassroomAsync(int classroomId, int userId)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<string>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
-
-        // Authorization: Only manager can delete
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == classroom.InstitutionId && i.ManagerUserId == userId);
-
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-            return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         // Soft delete
         // Note: If Classroom has IsActive field, use it. Otherwise, we might need to add it.
@@ -262,16 +308,21 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<string>> RemoveStudentAsync(int classroomId, int studentId, int userId)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<string>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
-
-        // Authorization: Only manager can remove students
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == classroom.InstitutionId && i.ManagerUserId == userId);
-
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-            return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         var classroomStudent = await _context.ClassroomStudents
             .FirstOrDefaultAsync(cs => cs.ClassroomId == classroomId && cs.StudentId == studentId && cs.RemovedAt == null);
