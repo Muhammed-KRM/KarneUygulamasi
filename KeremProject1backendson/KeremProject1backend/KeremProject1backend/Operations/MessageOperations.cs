@@ -17,14 +17,22 @@ public class MessageOperations
     private readonly IHubContext<ChatHub> _chatHub;
     private readonly CacheService _cacheService;
     private readonly AuditService _auditService;
+    private readonly AuthorizationService _authorizationService;
 
-    public MessageOperations(ApplicationContext context, SessionService sessionService, IHubContext<ChatHub> chatHub, CacheService cacheService, AuditService auditService)
+    public MessageOperations(
+        ApplicationContext context, 
+        SessionService sessionService, 
+        IHubContext<ChatHub> chatHub, 
+        CacheService cacheService, 
+        AuditService auditService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
         _chatHub = chatHub;
         _cacheService = cacheService;
         _auditService = auditService;
+        _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<int>> StartConversationAsync(int institutionId, int? classroomId, string title, bool isGroup)

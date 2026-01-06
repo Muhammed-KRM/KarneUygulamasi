@@ -16,29 +16,37 @@ public class ExamOperations
     private readonly OpticalParserService _opticalParserService;
     private readonly NotificationService _notificationService;
     private readonly CacheService _cacheService;
+    private readonly AuthorizationService _authorizationService;
 
-    public ExamOperations(ApplicationContext context, SessionService sessionService, OpticalParserService opticalParserService, NotificationService notificationService, CacheService cacheService)
+    public ExamOperations(
+        ApplicationContext context, 
+        SessionService sessionService, 
+        OpticalParserService opticalParserService, 
+        NotificationService notificationService, 
+        CacheService cacheService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
         _opticalParserService = opticalParserService;
         _notificationService = notificationService;
         _cacheService = cacheService;
+        _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<int>> CreateExamAsync(CreateExamDto dto)
     {
-        var userId = _sessionService.GetUserId();
-        // Validation: Does user have authority in this institution?
-        var canCreate = await _context.InstitutionUsers.AnyAsync(iu =>
-            iu.InstitutionId == dto.InstitutionId &&
-            iu.UserId == userId &&
-            (iu.Role == InstitutionRole.Manager || iu.Role == InstitutionRole.Teacher));
-
-        if (!canCreate && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-        {
-            return BaseResponse<int>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
-        }
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<int>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
         var exam = new Exam
         {
@@ -66,6 +74,18 @@ public class ExamOperations
 
     public async Task<BaseResponse<bool>> ProcessOpticalResultsAsync(int examId, Stream fileStream)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var exam = await _context.Exams.Include(e => e.Institution).FirstOrDefaultAsync(e => e.Id == examId);
         if (exam == null) return BaseResponse<bool>.ErrorResponse("Exam not found", ErrorCodes.GenericError);
 
@@ -114,6 +134,18 @@ public class ExamOperations
 
     public async Task<BaseResponse<bool>> ConfirmResultsAndNotifyAsync(int examId)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var results = await _context.ExamResults
             .Where(er => er.ExamId == examId)
             .ToListAsync();

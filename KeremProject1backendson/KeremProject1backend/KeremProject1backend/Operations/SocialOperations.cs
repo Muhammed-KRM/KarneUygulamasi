@@ -22,6 +22,7 @@ public class SocialOperations
     private readonly AuditService _auditService;
     private readonly NotificationService _notificationService;
     private readonly IHubContext<NotificationHub> _notificationHub;
+    private readonly AuthorizationService _authorizationService;
 
     public SocialOperations(
         ApplicationContext context,
@@ -29,7 +30,8 @@ public class SocialOperations
         CacheService cacheService,
         AuditService auditService,
         NotificationService notificationService,
-        IHubContext<NotificationHub> notificationHub)
+        IHubContext<NotificationHub> notificationHub,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
@@ -37,6 +39,7 @@ public class SocialOperations
         _auditService = auditService;
         _notificationService = notificationService;
         _notificationHub = notificationHub;
+        _authorizationService = authorizationService;
     }
 
     // ========== CONTENT MANAGEMENT ==========
@@ -160,6 +163,20 @@ public class SocialOperations
 
     public async Task<BaseResponse<bool>> UpdateContentAsync(int contentId, UpdateContentRequest request)
     {
+        // 1. YETKİ KONTROLÜ - Herkes yapabilir (içerik sahibi kontrolü iş mantığında)
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin,
+            UserRole.Manager,
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Student,
+            UserRole.StandaloneStudent);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var userId = _sessionService.GetUserId();
 
         var content = await _context.Contents
@@ -168,9 +185,16 @@ public class SocialOperations
         if (content == null)
             return BaseResponse<bool>.ErrorResponse("Content not found", ErrorCodes.NotFound);
 
-        // Yetki kontrolü
+        // İçerik sahibi kontrolü
         if (content.AuthorId != userId)
-            return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
+        {
+            // Admin içerik güncelleyebilir
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null || (user.GlobalRole != UserRole.AdminAdmin && user.GlobalRole != UserRole.Admin))
+                return BaseResponse<bool>.ErrorResponse("Bu içeriği güncelleme yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         // Update fields
         if (!string.IsNullOrWhiteSpace(request.Title))
@@ -220,6 +244,20 @@ public class SocialOperations
 
     public async Task<BaseResponse<bool>> DeleteContentAsync(int contentId)
     {
+        // 1. YETKİ KONTROLÜ - Herkes yapabilir (içerik sahibi kontrolü iş mantığında)
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin,
+            UserRole.Manager,
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Student,
+            UserRole.StandaloneStudent);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var userId = _sessionService.GetUserId();
 
         var content = await _context.Contents
@@ -228,9 +266,16 @@ public class SocialOperations
         if (content == null)
             return BaseResponse<bool>.ErrorResponse("Content not found", ErrorCodes.NotFound);
 
-        // Yetki kontrolü
+        // İçerik sahibi kontrolü
         if (content.AuthorId != userId)
-            return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
+        {
+            // Admin içerik silebilir
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null || (user.GlobalRole != UserRole.AdminAdmin && user.GlobalRole != UserRole.Admin))
+                return BaseResponse<bool>.ErrorResponse("Bu içeriği silme yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         // Soft delete
         content.IsDeleted = true;
@@ -1424,8 +1469,8 @@ public class SocialOperations
             .AsNoTracking()
             .Where(i => i.UserId == userId && i.Type == InteractionType.Like)
             .Include(i => i.Content)
-            .Where(i => i.Content.LessonId.HasValue)
-            .Select(i => i.Content.LessonId!.Value)
+            .Where(i => i.Content != null && i.Content.LessonId.HasValue)
+            .Select(i => i.Content!.LessonId!.Value)
             .Distinct()
             .ToListAsync();
 
@@ -1593,8 +1638,8 @@ public class SocialOperations
             .AsNoTracking()
             .Where(i => i.UserId == userId && i.Type == InteractionType.Like)
             .Include(i => i.Content)
-            .Where(i => i.Content.LessonId.HasValue)
-            .Select(i => i.Content.LessonId!.Value)
+            .Where(i => i.Content != null && i.Content.LessonId.HasValue)
+            .Select(i => i.Content!.LessonId!.Value)
             .Distinct()
             .ToListAsync();
 
@@ -1710,12 +1755,12 @@ public class SocialOperations
             .AsNoTracking()
             .Where(i => i.UserId == userId && i.Type == InteractionType.Save)
             .Include(i => i.Content)
-                .ThenInclude(c => c.Author)
+                .ThenInclude(c => c!.Author)
             .Include(i => i.Content)
-                .ThenInclude(c => c.Lesson)
+                .ThenInclude(c => c!.Lesson)
             .Include(i => i.Content)
-                .ThenInclude(c => c.Topic)
-            .Where(i => !i.Content.IsDeleted)
+                .ThenInclude(c => c!.Topic)
+            .Where(i => i.Content != null && !i.Content.IsDeleted)
             .AsQueryable();
 
         var totalCount = await query.CountAsync();
@@ -1728,8 +1773,11 @@ public class SocialOperations
         var dtos = new List<ContentDto>();
         foreach (var save in saves)
         {
-            var dto = await MapToContentDtoAsync(save.Content, userId);
-            dtos.Add(dto);
+            if (save.Content != null)
+            {
+                var dto = await MapToContentDtoAsync(save.Content, userId);
+                dtos.Add(dto);
+            }
         }
 
         var response = new PagedResponse<ContentDto>(dtos, totalCount, page, limit);
@@ -1985,6 +2033,7 @@ public class SocialOperations
         var hashtagCounts = new Dictionary<string, int>();
         foreach (var tagsJson in allContents)
         {
+            if (string.IsNullOrEmpty(tagsJson)) continue;
             var tags = JsonSerializer.Deserialize<List<string>>(tagsJson) ?? new List<string>();
             foreach (var tag in tags)
             {
@@ -2115,6 +2164,7 @@ public class SocialOperations
         var uniqueTags = new HashSet<string>();
         foreach (var tagsJson in allTags)
         {
+            if (string.IsNullOrEmpty(tagsJson)) continue;
             var tags = JsonSerializer.Deserialize<List<string>>(tagsJson) ?? new List<string>();
             foreach (var tag in tags)
             {
@@ -2224,6 +2274,20 @@ public class SocialOperations
         int contentId,
         string period = "week")
     {
+        // 1. YETKİ KONTROLÜ - Herkes yapabilir (içerik sahibi kontrolü iş mantığında)
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin,
+            UserRole.Manager,
+            UserRole.Teacher,
+            UserRole.StandaloneTeacher,
+            UserRole.Student,
+            UserRole.StandaloneStudent);
+        if (authError != null)
+            return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
         var userId = _sessionService.GetUserId();
 
         var content = await _context.Contents
@@ -2234,9 +2298,17 @@ public class SocialOperations
             return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
                 "Content not found", ErrorCodes.NotFound);
 
-        if (content.AuthorId != userId && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin) && !_sessionService.IsInGlobalRole(UserRole.Admin))
-            return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
-                "Unauthorized", ErrorCodes.Unauthorized);
+        // İçerik sahibi kontrolü
+        if (content.AuthorId != userId)
+        {
+            // Admin analytics görebilir
+            var user = await _context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null || (user.GlobalRole != UserRole.AdminAdmin && user.GlobalRole != UserRole.Admin))
+                return BaseResponse<ContentAnalyticsDto>.ErrorResponse(
+                    "Bu içeriğin analitiğini görme yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         var cacheKey = $"Content:Analytics:{contentId}:{period}";
         var cached = await _cacheService.GetAsync<ContentAnalyticsDto>(cacheKey);
@@ -2396,11 +2468,16 @@ public class SocialOperations
         int limit = 20,
         bool forceRefresh = false)
     {
-        var adminId = _sessionService.GetUserId();
-
-        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin) && !_sessionService.IsInGlobalRole(UserRole.Admin))
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
             return BaseResponse<PagedResponse<ContentReportDto>>.ErrorResponse(
-                "Unauthorized", ErrorCodes.Unauthorized);
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
+        var adminId = _sessionService.GetUserId();
 
         var cacheKey = $"Admin:ContentReports:Status{status}:Page{page}";
         if (!forceRefresh)
@@ -2458,11 +2535,16 @@ public class SocialOperations
         int reportId,
         ReviewReportRequest request)
     {
-        var adminId = _sessionService.GetUserId();
-
-        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin) && !_sessionService.IsInGlobalRole(UserRole.Admin))
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
             return BaseResponse<string>.ErrorResponse(
-                "Unauthorized", ErrorCodes.Unauthorized);
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
+        var adminId = _sessionService.GetUserId();
 
         var report = await _context.ContentReports
             .Include(r => r.Content)
@@ -2948,7 +3030,7 @@ public class SocialOperations
         if (string.IsNullOrWhiteSpace(request.Title))
             return BaseResponse<DraftDto>.ErrorResponse("Title is required", ErrorCodes.ValidationFailed);
 
-        ContentDraft draft;
+        ContentDraft? draft;
 
         if (draftId.HasValue)
         {
@@ -3000,7 +3082,7 @@ public class SocialOperations
 
         // Audit log
         await _auditService.LogAsync(userId, draftId.HasValue ? "DraftUpdated" : "DraftCreated", 
-            JsonSerializer.Serialize(new { DraftId = draft.Id }));
+            JsonSerializer.Serialize(new { DraftId = draft!.Id }));
 
         var dto = await MapToDraftDtoAsync(draft);
         return BaseResponse<DraftDto>.SuccessResponse(dto);

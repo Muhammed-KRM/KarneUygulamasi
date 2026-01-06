@@ -20,12 +20,21 @@ public class UserOperations
     private readonly ApplicationContext _context;
     private readonly AuditService _auditService;
     private readonly CacheService _cacheService;
+    private readonly AuthorizationService _authorizationService;
+    private readonly SessionService _sessionService;
 
-    public UserOperations(ApplicationContext context, AuditService auditService, CacheService cacheService)
+    public UserOperations(
+        ApplicationContext context, 
+        AuditService auditService, 
+        CacheService cacheService,
+        AuthorizationService authorizationService,
+        SessionService sessionService)
     {
         _context = context;
         _auditService = auditService;
         _cacheService = cacheService;
+        _authorizationService = authorizationService;
+        _sessionService = sessionService;
     }
 
     public async Task<BaseResponse<UserProfileDto>> GetProfileAsync(int userId)
@@ -55,6 +64,16 @@ public class UserOperations
 
     public async Task<BaseResponse<string>> UpdateProfileAsync(int userId, UpdateProfileRequest request)
     {
+        // 1. YETKİ KONTROLÜ - Kendi profili veya Admin
+        var currentUserId = _sessionService.GetUserId();
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null && currentUserId != userId)
+            return BaseResponse<string>.ErrorResponse(
+                "Bu işlemi sadece kendi hesabınız için yapabilirsiniz",
+                ErrorCodes.AccessDenied);
+
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
             return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
@@ -80,6 +99,16 @@ public class UserOperations
 
     public async Task<BaseResponse<string>> ChangePasswordAsync(int userId, ChangePasswordRequest request)
     {
+        // 1. YETKİ KONTROLÜ - Kendi hesabı veya Admin
+        var currentUserId = _sessionService.GetUserId();
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null && currentUserId != userId)
+            return BaseResponse<string>.ErrorResponse(
+                "Bu işlemi sadece kendi hesabınız için yapabilirsiniz",
+                ErrorCodes.AccessDenied);
+
         var user = await _context.Users.FindAsync(userId);
         if (user == null)
             return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.AuthUserNotFound);
@@ -324,8 +353,8 @@ public class UserOperations
             Id = targetUser.Id,
             FullName = targetUser.FullName,
             Username = targetUser.Username,
-            Email = isOwner ? targetUser.Email : null, // Email sadece kendi profili için
-            Phone = isOwner ? targetUser.Phone : null, // Phone sadece kendi profili için
+            Email = isOwner ? targetUser.Email : null!, // Email sadece kendi profili için
+            Phone = isOwner ? targetUser.Phone : null!, // Phone sadece kendi profili için
             ProfileImageUrl = targetUser.ProfileImageUrl,
             ProfileVisibility = targetUser.ProfileVisibility.ToString(),
             GlobalRole = targetUser.GlobalRole.ToString(),

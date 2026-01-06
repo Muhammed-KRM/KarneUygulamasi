@@ -14,12 +14,18 @@ public class AccountOperations
     private readonly ApplicationContext _context;
     private readonly SessionService _sessionService;
     private readonly NotificationService _notificationService;
+    private readonly AuthorizationService _authorizationService;
 
-    public AccountOperations(ApplicationContext context, SessionService sessionService, NotificationService notificationService)
+    public AccountOperations(
+        ApplicationContext context, 
+        SessionService sessionService, 
+        NotificationService notificationService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
         _notificationService = notificationService;
+        _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<int>> RequestAccountLinkAsync(int institutionId, string studentNumber)
@@ -78,7 +84,15 @@ public class AccountOperations
 
     public async Task<BaseResponse<bool>> ApproveAccountLinkAsync(int linkId)
     {
-        var currentUserId = _sessionService.GetUserId();
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
         var accountLink = await _context.AccountLinks
             .Include(al => al.InstitutionUser)
@@ -88,15 +102,10 @@ public class AccountOperations
         if (accountLink == null)
             return BaseResponse<bool>.ErrorResponse("Bağlantı talebi bulunamadı", ErrorCodes.GenericError);
 
-        // Check if current user is manager of the institution
-        var isManager = await _context.Institutions
-            .AnyAsync(i => i.Id == accountLink.InstitutionUser.InstitutionId && i.ManagerUserId == currentUserId);
-
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-            return BaseResponse<bool>.ErrorResponse("Yetkiniz yok", ErrorCodes.AccessDenied);
-
         if (accountLink.Status != LinkStatus.Pending)
             return BaseResponse<bool>.ErrorResponse("Bu talep zaten işlenmiş", ErrorCodes.GenericError);
+
+        var currentUserId = _sessionService.GetUserId();
 
         // Approve link
         accountLink.Status = LinkStatus.Approved;

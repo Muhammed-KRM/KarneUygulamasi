@@ -19,13 +19,20 @@ public class AdminOperations
     private readonly AuditService _auditService;
     private readonly SessionService _sessionService;
     private readonly CacheService _cacheService;
+    private readonly AuthorizationService _authorizationService;
 
-    public AdminOperations(ApplicationContext context, AuditService auditService, SessionService sessionService, CacheService cacheService)
+    public AdminOperations(
+        ApplicationContext context, 
+        AuditService auditService, 
+        SessionService sessionService, 
+        CacheService cacheService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _auditService = auditService;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        _authorizationService = authorizationService;
     }
 
     // Kullanıcı Yönetimi
@@ -37,6 +44,14 @@ public class AdminOperations
         UserRole? role = null,
         bool forceRefresh = false)
     {
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<PagedResult<UserListDto>>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
         // Cache key: admin users list with filters
         var cacheKey = $"admin_users_{page}_{limit}_{search}_{status}_{role}";
         if (!forceRefresh)

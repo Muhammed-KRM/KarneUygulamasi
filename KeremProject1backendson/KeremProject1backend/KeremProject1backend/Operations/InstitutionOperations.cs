@@ -15,25 +15,33 @@ public class InstitutionOperations
     private readonly SessionService _sessionService;
     private readonly CacheService _cacheService;
     private readonly AuditService _auditService;
+    private readonly AuthorizationService _authorizationService;
 
-    public InstitutionOperations(ApplicationContext context, SessionService sessionService, CacheService cacheService, AuditService auditService)
+    public InstitutionOperations(
+        ApplicationContext context, 
+        SessionService sessionService, 
+        CacheService cacheService, 
+        AuditService auditService,
+        AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
         _cacheService = cacheService;
         _auditService = auditService;
+        _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<bool>> AddUserToInstitutionAsync(int institutionId, int userId, InstitutionRole role, string? number = null)
     {
-        var currentUserId = _sessionService.GetUserId();
-        // Check if current user is admin or manager of this institution
-        var isManager = await _context.Institutions.AnyAsync(i => i.Id == institutionId && i.ManagerUserId == currentUserId);
-
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
-        {
-            return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
-        }
+        // 1. YETKİ KONTROLÜ
+        var authError = _authorizationService.RequireGlobalRole(
+            UserRole.Manager,
+            UserRole.AdminAdmin,
+            UserRole.Admin);
+        if (authError != null)
+            return BaseResponse<bool>.ErrorResponse(
+                authError.Error ?? "Yetkiniz yok",
+                authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
         // Check if user already exists in institution
         var existing = await _context.InstitutionUsers.AnyAsync(iu => iu.UserId == userId && iu.InstitutionId == institutionId);

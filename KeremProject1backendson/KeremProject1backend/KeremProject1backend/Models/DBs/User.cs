@@ -12,7 +12,7 @@ public class User
     public byte[] PasswordHash { get; set; } = Array.Empty<byte>();
     public byte[] PasswordSalt { get; set; } = Array.Empty<byte>();
 
-    public UserRole GlobalRole { get; set; } = UserRole.User;
+    public UserRole GlobalRole { get; set; } = UserRole.Student;
     public UserStatus Status { get; set; } = UserStatus.Active;
 
     public string? ProfileImageUrl { get; set; }

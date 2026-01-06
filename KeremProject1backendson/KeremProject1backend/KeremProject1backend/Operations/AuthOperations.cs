@@ -36,7 +36,7 @@ public static class AuthOperations
             Email = request.Email,
             PasswordHash = hash,
             PasswordSalt = salt,
-            GlobalRole = UserRole.User,
+            GlobalRole = UserRole.Student,
             Status = UserStatus.Active,
             ProfileVisibility = ProfileVisibility.PublicToAll,
             CreatedAt = DateTime.UtcNow
