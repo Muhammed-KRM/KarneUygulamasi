@@ -1,4 +1,5 @@
 using KeremProject1backend.Operations;
+using KeremProject1backend.Models.DTOs.Requests;
 using KeremProject1backend.Models.DTOs;
 using KeremProject1backend.Models.Enums;
 using Microsoft.AspNetCore.Authorization;
@@ -20,7 +21,7 @@ public class ExamController : BaseController
     }
 
     [HttpPost("create")]
-    public async Task<IActionResult> CreateExam([FromBody] CreateExamDto request)
+    public async Task<IActionResult> CreateExam([FromBody] CreateExamRequest request)
     {
         var result = await _examOperations.CreateExamAsync(request);
         if (!result.Success) return BadRequest(result);
@@ -44,6 +45,7 @@ public class ExamController : BaseController
     public async Task<IActionResult> ConfirmResults(int id)
     {
         var result = await _examOperations.ConfirmResultsAndNotifyAsync(id);
+        if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
 

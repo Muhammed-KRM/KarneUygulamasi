@@ -1,9 +1,11 @@
+using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Models.DBs;
 using KeremProject1backend.Models.Enums;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 
 namespace KeremProject1backend.Services;
 
@@ -11,11 +13,19 @@ public class SessionService
 {
     private readonly IConfiguration _configuration;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly CacheService _cacheService;
+    private readonly ApplicationContext _context;
 
-    public SessionService(IConfiguration configuration, IHttpContextAccessor httpContextAccessor)
+    public SessionService(
+        IConfiguration configuration,
+        IHttpContextAccessor httpContextAccessor,
+        CacheService cacheService,
+        ApplicationContext context)
     {
         _configuration = configuration;
         _httpContextAccessor = httpContextAccessor;
+        _cacheService = cacheService;
+        _context = context;
     }
 
     public string GenerateToken(User user, List<InstitutionUser> memberships)
@@ -85,4 +95,42 @@ public class SessionService
     {
         return user.FindFirst($"inst_{institutionId}")?.Value;
     }
+
+    public async Task<UserPermissions> GetUserPermissionsAsync(int userId)
+    {
+        string cacheKey = $"user_perms_{userId}";
+
+        return await _cacheService.GetOrSetAsync(cacheKey, async () =>
+        {
+            var user = await _context.Users
+                .Include(u => u.InstitutionMemberships)
+                .ThenInclude(im => im.Institution)
+                .FirstOrDefaultAsync(u => u.Id == userId);
+
+            if (user == null) return null!;
+
+            return new UserPermissions
+            {
+                UserId = user.Id,
+                GlobalRole = user.GlobalRole,
+                InstitutionRoles = user.InstitutionMemberships.ToDictionary(
+                    im => im.InstitutionId,
+                    im => im.Role
+                )
+            };
+        }, TimeSpan.FromHours(1)) ?? null!;
+    }
+
+    public async Task InvalidateUserCacheAsync(int userId)
+    {
+        string cacheKey = $"user_perms_{userId}";
+        await _cacheService.RemoveAsync(cacheKey);
+    }
+}
+
+public class UserPermissions
+{
+    public int UserId { get; set; }
+    public UserRole GlobalRole { get; set; }
+    public Dictionary<int, InstitutionRole> InstitutionRoles { get; set; } = new();
 }

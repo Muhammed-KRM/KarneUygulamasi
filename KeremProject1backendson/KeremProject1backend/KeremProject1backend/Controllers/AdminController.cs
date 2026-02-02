@@ -15,18 +15,15 @@ namespace KeremProject1backend.Controllers;
 [Authorize(Roles = "AdminAdmin,Admin")]
 public class AdminController : BaseController
 {
-    private readonly ApplicationContext _context;
-    private readonly AuditService _auditService;
+    private readonly AuthOperations _authOperations;
     private readonly AdminOperations _adminOperations;
 
     public AdminController(
-        ApplicationContext context,
-        SessionService sessionService,
-        AuditService auditService,
-        AdminOperations adminOperations) : base(sessionService)
+        AuthOperations authOperations,
+        AdminOperations adminOperations,
+        SessionService sessionService) : base(sessionService)
     {
-        _context = context;
-        _auditService = auditService;
+        _authOperations = authOperations;
         _adminOperations = adminOperations;
     }
 
@@ -35,7 +32,7 @@ public class AdminController : BaseController
     public async Task<IActionResult> ApproveInstitution(int id)
     {
         var adminId = GetCurrentUserId();
-        var result = await AuthOperations.ApproveInstitutionAsync(id, adminId, _context, _auditService);
+        var result = await _authOperations.ApproveInstitutionAsync(id, adminId);
 
         if (!result.Success)
             return BadRequest(result);
@@ -47,7 +44,7 @@ public class AdminController : BaseController
     [Authorize(Roles = "AdminAdmin")]
     public async Task<IActionResult> GetPendingInstitutions()
     {
-        var result = await AuthOperations.GetPendingInstitutionsAsync(_context);
+        var result = await _authOperations.GetPendingInstitutionsAsync();
         return Ok(result);
     }
 

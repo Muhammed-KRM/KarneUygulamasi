@@ -2,11 +2,13 @@ using KeremProject1backend.Core.Constants;
 using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Models.DBs;
 using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Responses;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.SignalR;
 using KeremProject1backend.Hubs;
+using System.Text.Json;
 
 namespace KeremProject1backend.Operations;
 
@@ -20,10 +22,10 @@ public class MessageOperations
     private readonly AuthorizationService _authorizationService;
 
     public MessageOperations(
-        ApplicationContext context, 
-        SessionService sessionService, 
-        IHubContext<ChatHub> chatHub, 
-        CacheService cacheService, 
+        ApplicationContext context,
+        SessionService sessionService,
+        IHubContext<ChatHub> chatHub,
+        CacheService cacheService,
         AuditService auditService,
         AuthorizationService authorizationService)
     {
@@ -65,6 +67,8 @@ public class MessageOperations
         _context.ConversationMembers.Add(member);
         await _context.SaveChangesAsync();
 
+        await _auditService.LogAsync(userId, "ConversationStarted", JsonSerializer.Serialize(new { ConversationId = conversation.Id, Title = title }));
+
         return BaseResponse<int>.SuccessResponse(conversation.Id);
     }
 
@@ -90,7 +94,7 @@ public class MessageOperations
         };
 
         _context.Messages.Add(message);
-        
+
         // Update conversation LastMessageAt
         var conversation = await _context.Conversations.FindAsync(conversationId);
         if (conversation != null)
@@ -103,11 +107,14 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync("user_conversations_*");
 
+        // Audit Log
+        await _auditService.LogAsync(userId, "MessageSent", JsonSerializer.Serialize(new { MessageId = message.Id, ConversationId = conversationId }));
+
         // Notify via SignalR
         await _chatHub.Clients.Group($"Conv_{conversationId}").SendAsync("ReceiveMessage", new
         {
             Id = message.Id,
-            ConversationId = message.ConversationId,
+            ConversationId = message.Id,
             SenderId = message.SenderId,
             Content = message.Content,
             Type = message.Type,
@@ -174,6 +181,8 @@ public class MessageOperations
         _context.Messages.AddRange(messagesList);
         await _context.SaveChangesAsync();
 
+        await _auditService.LogAsync(userId, "BulkReportsSentToClass", JsonSerializer.Serialize(new { ClassroomId = classroomId, Count = reportCardIds.Count }));
+
         // SignalR Notification
         await _chatHub.Clients.Group($"Conv_{classroom.ClassConversation.Id}").SendAsync("BulkReportsReceived", messagesList.Count);
 
@@ -214,8 +223,8 @@ public class MessageOperations
                         SenderName = m.Sender.FullName
                     })
                     .FirstOrDefault(),
-                UnreadCount = _context.Messages.Count(m => 
-                    m.ConversationId == cm.ConversationId && 
+                UnreadCount = _context.Messages.Count(m =>
+                    m.ConversationId == cm.ConversationId &&
                     m.SentAt > (cm.LastReadAt ?? DateTime.MinValue) &&
                     m.SenderId != userId &&
                     !m.IsDeleted)
@@ -233,7 +242,7 @@ public class MessageOperations
 
     public async Task<BaseResponse<ConversationDetailDto>> GetConversationAsync(int conversationId, int userId)
     {
-        var isMember = await _context.ConversationMembers.AnyAsync(cm => 
+        var isMember = await _context.ConversationMembers.AnyAsync(cm =>
             cm.ConversationId == conversationId && cm.UserId == userId);
 
         if (!isMember)
@@ -293,7 +302,7 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync("user_conversations_*");
 
-        await _auditService.LogAsync(userId, "ConversationUpdated", 
+        await _auditService.LogAsync(userId, "ConversationUpdated",
             System.Text.Json.JsonSerializer.Serialize(new { ConversationId = conversationId, Title = title }));
 
         return BaseResponse<string>.SuccessResponse("Conversation updated successfully");
@@ -325,7 +334,7 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync("user_conversations_*");
 
-        await _auditService.LogAsync(userId, "ConversationDeleted", 
+        await _auditService.LogAsync(userId, "ConversationDeleted",
             System.Text.Json.JsonSerializer.Serialize(new { ConversationId = conversationId }));
 
         return BaseResponse<string>.SuccessResponse("Conversation deleted successfully");
@@ -352,7 +361,7 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync("user_conversations_*");
 
-        await _auditService.LogAsync(userId, "LeftConversation", 
+        await _auditService.LogAsync(userId, "LeftConversation",
             System.Text.Json.JsonSerializer.Serialize(new { ConversationId = conversationId }));
 
         return BaseResponse<string>.SuccessResponse("Left conversation successfully");
@@ -375,7 +384,7 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync($"user_conversations_{userId}_*");
 
-        await _auditService.LogAsync(userId, "MessageDeleted", 
+        await _auditService.LogAsync(userId, "MessageDeleted",
             System.Text.Json.JsonSerializer.Serialize(new { MessageId = messageId }));
 
         return BaseResponse<string>.SuccessResponse("Message deleted successfully");
@@ -401,7 +410,7 @@ public class MessageOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync($"user_conversations_{userId}_*");
 
-        await _auditService.LogAsync(userId, "MessageUpdated", 
+        await _auditService.LogAsync(userId, "MessageUpdated",
             System.Text.Json.JsonSerializer.Serialize(new { MessageId = messageId }));
 
         return BaseResponse<string>.SuccessResponse("Message updated successfully");
@@ -508,16 +517,4 @@ public class ConversationMemberDto
     public string UserName { get; set; } = string.Empty;
     public bool IsAdmin { get; set; }
     public DateTime JoinedAt { get; set; }
-}
-
-public class MessageDto
-{
-    public int Id { get; set; }
-    public int SenderId { get; set; }
-    public string SenderName { get; set; } = string.Empty;
-    public string Content { get; set; } = string.Empty;
-    public MessageType Type { get; set; }
-    public int? AttachedExamId { get; set; }
-    public int? AttachedExamResultId { get; set; }
-    public DateTime SentAt { get; set; }
 }

@@ -2,9 +2,11 @@ using KeremProject1backend.Core.Constants;
 using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Models.DBs;
 using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Responses;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 
 namespace KeremProject1backend.Operations;
 
@@ -12,32 +14,34 @@ public class ClassroomOperations
 {
     private readonly ApplicationContext _context;
     private readonly SessionService _sessionService;
+    private readonly AuditService _auditService;
     private readonly CacheService _cacheService;
     private readonly AuthorizationService _authorizationService;
 
     public ClassroomOperations(
-        ApplicationContext context, 
-        SessionService sessionService, 
+        ApplicationContext context,
+        SessionService sessionService,
+        AuditService auditService,
         CacheService cacheService,
         AuthorizationService authorizationService)
     {
         _context = context;
         _sessionService = sessionService;
+        _auditService = auditService;
         _cacheService = cacheService;
         _authorizationService = authorizationService;
     }
 
     public async Task<BaseResponse<int>> CreateClassroomAsync(int institutionId, string name, int grade)
     {
-        // 1. YETKİ KONTROLÜ (EN BAŞTA - ZORUNLU!)
-        // Manager, AdminAdmin veya Admin olmalı
+        // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
-            UserRole.Manager, 
-            UserRole.AdminAdmin, 
+            UserRole.Manager,
+            UserRole.AdminAdmin,
             UserRole.Admin);
         if (authError != null)
             return BaseResponse<int>.ErrorResponse(
-                authError.Error ?? "Yetkiniz yok", 
+                authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
         // 2. Validation
@@ -47,36 +51,38 @@ public class ClassroomOperations
         if (grade < 1 || grade > 12)
             return BaseResponse<int>.ErrorResponse("Geçersiz sınıf seviyesi", ErrorCodes.ValidationFailed);
 
+        var userId = _sessionService.GetUserId();
+
         var classroom = new Classroom
         {
             InstitutionId = institutionId,
             Name = name,
             Grade = grade,
             CreatedAt = DateTime.UtcNow,
-            Institution = null! // Satisfy required, EF will handle mapping
+            Institution = null!
         };
 
         _context.Classrooms.Add(classroom);
         await _context.SaveChangesAsync();
 
-        // Cache invalidation: Remove institution classrooms cache
-        await _cacheService.RemoveByPatternAsync($"Inst:{institutionId}:Classrooms");
-
-        // 3. Create Class Conversation
+        // Automatic Conversation Creation
         var conversation = new Conversation
         {
-            Type = ConversationType.ClassGroup,
+            InstitutionId = institutionId,
             ClassroomId = classroom.Id,
-            Title = $"{classroom.Name} Sınıf Grubu",
+            Title = $"{name} Sınıf Grubu",
             IsGroup = true,
             CreatedAt = DateTime.UtcNow,
-            InstitutionId = institutionId,
             Institution = null!
         };
         _context.Conversations.Add(conversation);
         await _context.SaveChangesAsync();
 
-        // 4. Conversation is already linked via conversation.ClassroomId
+        await _auditService.LogAsync(userId, "ClassroomCreated", JsonSerializer.Serialize(new { ClassroomId = classroom.Id, Name = name }));
+
+        // Cache invalidation: Remove institution classrooms cache
+        await _cacheService.RemoveByPatternAsync($"Inst:{institutionId}:Classrooms");
+
         return BaseResponse<int>.SuccessResponse(classroom.Id);
     }
 
@@ -94,20 +100,21 @@ public class ClassroomOperations
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
+        var userId = _sessionService.GetUserId();
         // studentInstitutionUserId is the ID from InstitutionUsers table
         var classroom = await _context.Classrooms.FindAsync(classroomId);
-        if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.Unauthorized); // Using existing code for now or will add Generic
+        if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
 
-        var existing = await _context.ClassroomStudents.AnyAsync(cs => 
-            cs.ClassroomId == classroomId && 
-            cs.StudentId == studentInstitutionUserId &&
+        var existing = await _context.ClassroomStudents.AnyAsync(cs =>
+            cs.ClassroomId == classroomId &&
+            cs.InstitutionUserId == studentInstitutionUserId &&
             cs.RemovedAt == null);
         if (existing) return BaseResponse<bool>.ErrorResponse("Student already in class", "202001");
 
         var cs = new ClassroomStudent
         {
             ClassroomId = classroomId,
-            StudentId = studentInstitutionUserId,
+            InstitutionUserId = studentInstitutionUserId,
             AssignedAt = DateTime.UtcNow,
             Classroom = null!,
             Student = null!
@@ -116,9 +123,14 @@ public class ClassroomOperations
         _context.ClassroomStudents.Add(cs);
         await _context.SaveChangesAsync();
 
-        // Cache invalidation: Remove classroom details cache
-        await _cacheService.RemoveByPatternAsync($"Classroom:{classroomId}:Details");
-        await _cacheService.RemoveByPatternAsync($"Inst:{classroom.InstitutionId}:Classrooms");
+        if (classroom != null)
+        {
+            await _auditService.LogAsync(userId, "StudentAddedToClassroom", JsonSerializer.Serialize(new { ClassroomId = classroomId, StudentInstitutionUserId = studentInstitutionUserId }));
+
+            // Cache invalidation: Remove classroom details cache
+            await _cacheService.RemoveByPatternAsync($"Classroom:{classroomId}:Details");
+            await _cacheService.RemoveByPatternAsync($"Inst:{classroom.InstitutionId}:Classrooms");
+        }
 
         return BaseResponse<bool>.SuccessResponse(true);
     }
@@ -137,33 +149,40 @@ public class ClassroomOperations
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
+        var userId = _sessionService.GetUserId();
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
 
-        foreach (var studentId in studentInstitutionUserIds)
+        var students = new List<ClassroomStudent>();
+        foreach (var id in studentInstitutionUserIds)
         {
-            var existing = await _context.ClassroomStudents.AnyAsync(cs => 
-                cs.ClassroomId == classroomId && 
-                cs.StudentId == studentId &&
+            var existing = await _context.ClassroomStudents.AnyAsync(cs =>
+                cs.ClassroomId == classroomId &&
+                cs.InstitutionUserId == id &&
                 cs.RemovedAt == null);
             if (existing) continue;
 
-            var cs = new ClassroomStudent
+            students.Add(new ClassroomStudent
             {
                 ClassroomId = classroomId,
-                StudentId = studentId,
-                AssignedAt = DateTime.UtcNow, // Renamed from JoinedAt if following guide
+                InstitutionUserId = id,
+                AssignedAt = DateTime.UtcNow,
                 Classroom = null!,
                 Student = null!
-            };
-            _context.ClassroomStudents.Add(cs);
+            });
         }
 
-        await _context.SaveChangesAsync();
+        if (students.Any())
+        {
+            _context.ClassroomStudents.AddRange(students);
+            await _context.SaveChangesAsync();
 
-        // Cache invalidation (classroom already fetched at the beginning)
-        await _cacheService.RemoveByPatternAsync($"Classroom:{classroomId}:Details");
-        await _cacheService.RemoveByPatternAsync($"Inst:{classroom.InstitutionId}:Classrooms");
+            await _auditService.LogAsync(userId, "StudentsBulkAddedToClassroom", JsonSerializer.Serialize(new { ClassroomId = classroomId, Count = students.Count }));
+
+            // Cache invalidation
+            await _cacheService.RemoveByPatternAsync($"Classroom:{classroomId}:Details");
+            await _cacheService.RemoveByPatternAsync($"Inst:{classroom.InstitutionId}:Classrooms");
+        }
 
         return BaseResponse<bool>.SuccessResponse(true);
     }
@@ -182,34 +201,38 @@ public class ClassroomOperations
         }
 
         // Fetch with join for better mapping
-        var details = await _context.Classrooms
-            .Where(c => c.Id == classroomId)
-            .Select(c => new ClassroomDetailDto
-            {
-                Id = c.Id,
-                Name = c.Name,
-                Grade = c.Grade,
-                InstitutionId = c.InstitutionId,
-                Students = _context.ClassroomStudents
-                    .Where(cs => cs.ClassroomId == c.Id && cs.RemovedAt == null)
-                    .Select(cs => new ClassroomStudentDto
-                    {
-                        InstitutionUserId = cs.StudentId,
-                        FullName = cs.Student.User.FullName,
-                        StudentNumber = cs.Student.StudentNumber,
-                        AssignedAt = cs.AssignedAt
-                    }).ToList()
-            }).FirstOrDefaultAsync();
+        var classroom = await _context.Classrooms
+            .Include(c => c.Students)
+                .ThenInclude(cs => cs.Student)
+                    .ThenInclude(iu => iu.User)
+            .FirstOrDefaultAsync(c => c.Id == classroomId);
 
-        if (details == null) return BaseResponse<ClassroomDetailDto>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+        if (classroom == null) return BaseResponse<ClassroomDetailDto>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        var dto = new ClassroomDetailDto
+        {
+            Id = classroom.Id,
+            Name = classroom.Name,
+            Grade = classroom.Grade,
+            InstitutionId = classroom.InstitutionId,
+            Students = classroom.Students
+                .Where(cs => cs.RemovedAt == null)
+                .Select(cs => new ClassroomStudentDto
+                {
+                    InstitutionUserId = cs.InstitutionUserId,
+                    FullName = cs.Student.User.FullName,
+                    StudentNumber = cs.Student.StudentNumber,
+                    AssignedAt = cs.AssignedAt
+                }).ToList()
+        };
 
         // Cache for 15 minutes
         if (!forceRefresh)
         {
-            await _cacheService.SetAsync(cacheKey, details, TimeSpan.FromMinutes(15));
+            await _cacheService.SetAsync(cacheKey, dto, TimeSpan.FromMinutes(15));
         }
 
-        return BaseResponse<ClassroomDetailDto>.SuccessResponse(details);
+        return BaseResponse<ClassroomDetailDto>.SuccessResponse(dto);
     }
 
     public async Task<BaseResponse<List<ClassroomDto>>> GetClassroomsAsync(int institutionId, bool forceRefresh = false)
@@ -232,7 +255,7 @@ public class ClassroomOperations
                 Id = c.Id,
                 Name = c.Name,
                 Grade = c.Grade,
-                StudentCount = _context.ClassroomStudents.Count(cs => cs.ClassroomId == c.Id && cs.RemovedAt == null)
+                StudentCount = c.Students.Count(cs => cs.RemovedAt == null)
             }).ToListAsync();
 
         // Cache for 30 minutes
@@ -325,7 +348,7 @@ public class ClassroomOperations
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
 
         var classroomStudent = await _context.ClassroomStudents
-            .FirstOrDefaultAsync(cs => cs.ClassroomId == classroomId && cs.StudentId == studentId && cs.RemovedAt == null);
+            .FirstOrDefaultAsync(cs => cs.ClassroomId == classroomId && cs.InstitutionUserId == studentId && cs.RemovedAt == null);
 
         if (classroomStudent == null)
             return BaseResponse<string>.ErrorResponse("Student not found in classroom", ErrorCodes.GenericError);
@@ -362,7 +385,7 @@ public class ClassroomOperations
             .Take(limit)
             .Select(cs => new ClassroomStudentDto
             {
-                InstitutionUserId = cs.StudentId,
+                InstitutionUserId = cs.InstitutionUserId,
                 FullName = cs.Student.User.FullName,
                 StudentNumber = cs.Student.StudentNumber,
                 AssignedAt = cs.AssignedAt
@@ -379,27 +402,3 @@ public class UpdateClassroomRequest
     public int? Grade { get; set; }
 }
 
-public class ClassroomDto
-{
-    public int Id { get; set; }
-    public required string Name { get; set; }
-    public int Grade { get; set; }
-    public int StudentCount { get; set; }
-}
-
-public class ClassroomDetailDto
-{
-    public int Id { get; set; }
-    public required string Name { get; set; }
-    public int Grade { get; set; }
-    public int InstitutionId { get; set; }
-    public List<ClassroomStudentDto> Students { get; set; } = new();
-}
-
-public class ClassroomStudentDto
-{
-    public int InstitutionUserId { get; set; }
-    public string FullName { get; set; } = string.Empty;
-    public string? StudentNumber { get; set; }
-    public DateTime AssignedAt { get; set; }
-}

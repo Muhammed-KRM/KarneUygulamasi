@@ -7,6 +7,8 @@ using KeremProject1backend.Operations;
 using KeremProject1backend.Middlewares;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Threading.RateLimiting;
+using KeremProject1backend.Infrastructure.Handlers;
+using KeremProject1backend.Infrastructure.Middlewares;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -43,6 +45,7 @@ builder.Services.AddScoped<AuditService>();
 builder.Services.AddScoped<CacheService>();
 builder.Services.AddScoped<NotificationService>();
 builder.Services.AddScoped<OpticalParserService>();
+builder.Services.AddScoped<AuthOperations>();
 builder.Services.AddScoped<InstitutionOperations>();
 builder.Services.AddScoped<ClassroomOperations>();
 builder.Services.AddScoped<ExamOperations>();
@@ -113,7 +116,7 @@ builder.Services.AddAuthorization(options =>
         // This will be checked in controllers using SessionService
         return true; // Actual check done in controller/operation layer
     }));
-    
+
     options.AddPolicy("InstitutionRole:Teacher", policy => policy.RequireAssertion(context => true));
     options.AddPolicy("InstitutionRole:Student", policy => policy.RequireAssertion(context => true));
 });
@@ -200,6 +203,10 @@ builder.Services.AddCors(options =>
 // 9. SignalR
 builder.Services.AddSignalR();
 
+// 10. Infrastructure
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
+
 
 var app = builder.Build();
 
@@ -213,10 +220,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseExceptionHandler();
+
 app.UseCors("AllowAll");
 
 // Middleware Pipeline (Order matters!)
-app.UseMiddleware<RequestLoggingMiddleware>(); // Log requests first
+app.UseMiddleware<KeremProject1backend.Infrastructure.Middlewares.RequestLoggingMiddleware>(); // Log requests first
 app.UseMiddleware<TokenBlacklistMiddleware>(); // Check token blacklist
 app.UseMiddleware<GlobalExceptionMiddleware>(); // Catch exceptions
 

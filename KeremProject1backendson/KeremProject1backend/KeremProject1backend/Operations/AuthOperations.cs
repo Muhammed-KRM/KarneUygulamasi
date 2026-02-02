@@ -6,23 +6,34 @@ using KeremProject1backend.Models.DTOs.Requests;
 using KeremProject1backend.Models.DTOs.Responses;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
-using KeremProject1backend.Core.Constants; // Added this
+using KeremProject1backend.Core.Constants;
 using Microsoft.EntityFrameworkCore;
 
 namespace KeremProject1backend.Operations;
 
-public static class AuthOperations
+public class AuthOperations
 {
-    public static async Task<BaseResponse<string>> RegisterAsync(
-        RegisterRequest request,
+    private readonly ApplicationContext _context;
+    private readonly AuditService _auditService;
+    private readonly SessionService _sessionService;
+
+    public AuthOperations(
         ApplicationContext context,
-        AuditService auditService)
+        AuditService auditService,
+        SessionService sessionService)
+    {
+        _context = context;
+        _auditService = auditService;
+        _sessionService = sessionService;
+    }
+
+    public async Task<BaseResponse<string>> RegisterAsync(RegisterRequest request)
     {
         // 1. Username/Email uniqueness check
-        if (await context.Users.AnyAsync(u => u.Username == request.Username))
+        if (await _context.Users.AnyAsync(u => u.Username == request.Username))
             return BaseResponse<string>.ErrorResponse("Username already taken", ErrorCodes.AuthUsernameTaken);
 
-        if (await context.Users.AnyAsync(u => u.Email == request.Email))
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
             return BaseResponse<string>.ErrorResponse("Email already registered", ErrorCodes.AuthEmailTaken);
 
         // 2. Password hash
@@ -42,23 +53,19 @@ public static class AuthOperations
             CreatedAt = DateTime.UtcNow
         };
 
-        context.Users.Add(user);
-        await context.SaveChangesAsync();
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
 
         // 4. Audit log
-        await auditService.LogAsync(user.Id, "UserRegistered", $"Username: {user.Username}");
+        await _auditService.LogAsync(user.Id, "UserRegistered", $"Username: {user.Username}");
 
         return BaseResponse<string>.SuccessResponse("Registration successful. You can now log in.");
     }
 
-    public static async Task<BaseResponse<LoginResponse>> LoginAsync(
-        LoginRequest request,
-        ApplicationContext context,
-        SessionService sessionService,
-        AuditService auditService)
+    public async Task<BaseResponse<LoginResponse>> LoginAsync(LoginRequest request)
     {
         // 1. Find user
-        var user = await context.Users
+        var user = await _context.Users
             .Include(u => u.InstitutionMemberships)
                 .ThenInclude(im => im.Institution)
             .FirstOrDefaultAsync(u => u.Username == request.Username);
@@ -78,12 +85,12 @@ public static class AuthOperations
             return BaseResponse<LoginResponse>.ErrorResponse("Account not found", ErrorCodes.AuthUserDeleted);
 
         // 4. Generate token
-        var token = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
+        var token = _sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
 
         // 5. Generate refresh token
         var refreshToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
             .Replace("+", "-").Replace("/", "_").Replace("=", "");
-        
+
         var refreshTokenEntity = new RefreshToken
         {
             UserId = user.Id,
@@ -92,14 +99,14 @@ public static class AuthOperations
             CreatedAt = DateTime.UtcNow
         };
 
-        context.RefreshTokens.Add(refreshTokenEntity);
+        _context.RefreshTokens.Add(refreshTokenEntity);
 
         // 6. Update LastLogin
         user.LastLoginAt = DateTime.UtcNow;
-        await context.SaveChangesAsync();
+        await _context.SaveChangesAsync();
 
-        // 7. Audit log
-        await auditService.LogAsync(user.Id, "UserLoggedIn", null);
+        // 6. Audit log
+        await _auditService.LogAsync(user.Id, "UserLoggedIn", null);
 
         // 8. Build response
         var response = new LoginResponse
@@ -127,20 +134,13 @@ public static class AuthOperations
         return BaseResponse<LoginResponse>.SuccessResponse(response);
     }
 
-    public static async Task<BaseResponse<string>> ApplyInstitutionAsync(
-        ApplyInstitutionRequest request,
-        int userId,
-        ApplicationContext context,
-        AuditService auditService)
+    public async Task<BaseResponse<string>> ApplyInstitutionAsync(ApplyInstitutionRequest request, int userId)
     {
-        // 1. Check if user already has a pending or active institution application?
-        // (Optional rule: One institution per user for now?)
-
-        // 2. Uniqueness check for License Number
-        if (await context.Institutions.AnyAsync(i => i.LicenseNumber == request.LicenseNumber))
+        // 1. Uniqueness check for License Number
+        if (await _context.Institutions.AnyAsync(i => i.LicenseNumber == request.LicenseNumber))
             return BaseResponse<string>.ErrorResponse("License number already registered", ErrorCodes.AuthLicenseNumberTaken);
 
-        // 3. Create Institution
+        // 2. Create Institution
         var institution = new Institution
         {
             Name = request.Name,
@@ -148,14 +148,14 @@ public static class AuthOperations
             Address = request.Address,
             Phone = request.Phone,
             ManagerUserId = userId,
-            Status = InstitutionStatus.PendingApproval, // Pending admin approval
+            Status = InstitutionStatus.PendingApproval,
             CreatedAt = DateTime.UtcNow
         };
 
-        context.Institutions.Add(institution);
-        await context.SaveChangesAsync();
+        _context.Institutions.Add(institution);
+        await _context.SaveChangesAsync();
 
-        // 4. Create InstitutionUser (Manager role)
+        // 3. Create InstitutionUser (Manager role)
         var membership = new InstitutionUser
         {
             UserId = userId,
@@ -164,22 +164,18 @@ public static class AuthOperations
             JoinedAt = DateTime.UtcNow
         };
 
-        context.InstitutionUsers.Add(membership);
-        await context.SaveChangesAsync();
+        _context.InstitutionUsers.Add(membership);
+        await _context.SaveChangesAsync();
 
-        // 5. Audit log
-        await auditService.LogAsync(userId, "InstitutionApplied", $"Institution: {institution.Name}");
+        // 4. Audit log
+        await _auditService.LogAsync(userId, "InstitutionApplied", $"Institution: {institution.Name}");
 
         return BaseResponse<string>.SuccessResponse("Application submitted. Waiting for admin approval.");
     }
 
-    public static async Task<BaseResponse<string>> ApproveInstitutionAsync(
-        int institutionId,
-        int adminId,
-        ApplicationContext context,
-        AuditService auditService)
+    public async Task<BaseResponse<string>> ApproveInstitutionAsync(int institutionId, int adminId)
     {
-        var institution = await context.Institutions.FindAsync(institutionId);
+        var institution = await _context.Institutions.FindAsync(institutionId);
         if (institution == null)
             return BaseResponse<string>.ErrorResponse("Institution not found", ErrorCodes.AdminInstitutionNotFound);
 
@@ -190,18 +186,21 @@ public static class AuthOperations
         institution.ApprovedAt = DateTime.UtcNow;
         institution.ApprovedByAdminId = adminId;
         institution.SubscriptionStartDate = DateTime.UtcNow;
-        institution.SubscriptionEndDate = DateTime.UtcNow.AddYears(1); // 1 year trial/sub
+        institution.SubscriptionEndDate = DateTime.UtcNow.AddYears(1);
 
-        await context.SaveChangesAsync();
+        await _context.SaveChangesAsync();
 
-        await auditService.LogAsync(adminId, "InstitutionApproved", $"InstitutionId: {institutionId}");
+        // CRITICAL: Invalidate manager's permission cache because they now have an Active institution
+        await _sessionService.InvalidateUserCacheAsync(institution.ManagerUserId);
+
+        await _auditService.LogAsync(adminId, "InstitutionApproved", $"InstitutionId: {institutionId}");
 
         return BaseResponse<string>.SuccessResponse("Institution approved successfully.");
     }
 
-    public static async Task<BaseResponse<List<Institution>>> GetPendingInstitutionsAsync(ApplicationContext context)
+    public async Task<BaseResponse<List<Institution>>> GetPendingInstitutionsAsync()
     {
-        var pending = await context.Institutions
+        var pending = await _context.Institutions
             .Where(i => i.Status == InstitutionStatus.PendingApproval)
             .Include(i => i.Manager)
             .ToListAsync();
@@ -209,13 +208,9 @@ public static class AuthOperations
         return BaseResponse<List<Institution>>.SuccessResponse(pending);
     }
 
-    public static async Task<BaseResponse<LoginResponse>> RefreshTokenAsync(
-        RefreshTokenRequest request,
-        ApplicationContext context,
-        SessionService sessionService,
-        AuditService auditService)
+    public async Task<BaseResponse<LoginResponse>> RefreshTokenAsync(RefreshTokenRequest request)
     {
-        var refreshToken = await context.RefreshTokens
+        var refreshToken = await _context.RefreshTokens
             .Include(rt => rt.User)
                 .ThenInclude(u => u.InstitutionMemberships)
                     .ThenInclude(im => im.Institution)
@@ -234,7 +229,7 @@ public static class AuthOperations
         refreshToken.RevokedAt = DateTime.UtcNow;
 
         // Generate new access token
-        var newToken = sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
+        var newToken = _sessionService.GenerateToken(user, user.InstitutionMemberships.ToList());
 
         // Generate new refresh token
         var newRefreshToken = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))
@@ -248,10 +243,10 @@ public static class AuthOperations
             CreatedAt = DateTime.UtcNow
         };
 
-        context.RefreshTokens.Add(newRefreshTokenEntity);
-        await context.SaveChangesAsync();
+        _context.RefreshTokens.Add(newRefreshTokenEntity);
+        await _context.SaveChangesAsync();
 
-        await auditService.LogAsync(user.Id, "TokenRefreshed", null);
+        await _auditService.LogAsync(user.Id, "TokenRefreshed", null);
 
         var response = new LoginResponse
         {

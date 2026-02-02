@@ -1,5 +1,5 @@
 using KeremProject1backend.Operations;
-using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Requests;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using KeremProject1backend.Services;
@@ -7,8 +7,6 @@ using KeremProject1backend.Services;
 namespace KeremProject1backend.Controllers;
 
 [Authorize]
-[ApiController]
-[Route("api/[controller]")]
 public class ClassroomController : BaseController
 {
     private readonly ClassroomOperations _classroomOperations;
@@ -35,7 +33,7 @@ public class ClassroomController : BaseController
     }
 
     [HttpPost("add-student")]
-    public async Task<IActionResult> AddStudent([FromBody] AddStudentToClassroomRequest request)
+    public async Task<IActionResult> AddStudent([FromBody] AddStudentRequest request)
     {
         var result = await _classroomOperations.AddStudentToClassroomAsync(request.ClassroomId, request.StudentId);
         if (!result.Success) return BadRequest(result);
@@ -98,22 +96,3 @@ public class ClassroomController : BaseController
     }
 }
 
-
-public class CreateClassroomRequest
-{
-    public int InstitutionId { get; set; }
-    public string Name { get; set; } = string.Empty;
-    public int Grade { get; set; }
-}
-
-public class AddStudentToClassroomRequest
-{
-    public int ClassroomId { get; set; }
-    public int StudentId { get; set; }
-}
-
-public class BulkAddStudentsRequest
-{
-    public int ClassroomId { get; set; }
-    public List<int> StudentIds { get; set; } = new();
-}

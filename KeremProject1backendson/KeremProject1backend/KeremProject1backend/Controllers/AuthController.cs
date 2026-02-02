@@ -1,7 +1,5 @@
-﻿using KeremProject1backend.Infrastructure;
-using KeremProject1backend.Models.DTOs;
+﻿using KeremProject1backend.Models.DTOs;
 using KeremProject1backend.Models.DTOs.Requests;
-using KeremProject1backend.Models.DTOs.Responses;
 using KeremProject1backend.Operations;
 using KeremProject1backend.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -13,25 +11,22 @@ namespace KeremProject1backend.Controllers;
 [Route("api/[controller]")]
 public class AuthController : ControllerBase
 {
-    private readonly ApplicationContext _context;
+    private readonly AuthOperations _authOperations;
     private readonly SessionService _sessionService;
-    private readonly AuditService _auditService;
 
     public AuthController(
-        ApplicationContext context,
-        SessionService sessionService,
-        AuditService auditService)
+        AuthOperations authOperations,
+        SessionService sessionService)
     {
-        _context = context;
+        _authOperations = authOperations;
         _sessionService = sessionService;
-        _auditService = auditService;
     }
 
     [HttpPost("register")]
     [AllowAnonymous]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        var result = await AuthOperations.RegisterAsync(request, _context, _auditService);
+        var result = await _authOperations.RegisterAsync(request);
 
         if (!result.Success)
             return BadRequest(result);
@@ -43,7 +38,7 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var result = await AuthOperations.LoginAsync(request, _context, _sessionService, _auditService);
+        var result = await _authOperations.LoginAsync(request);
 
         if (!result.Success)
             return BadRequest(result);
@@ -55,7 +50,7 @@ public class AuthController : ControllerBase
     [Authorize]
     public IActionResult GetCurrentUser()
     {
-        var userId = _sessionService.GetCurrentUserId(User);
+        var userId = _sessionService.GetUserId();
 
         return Ok(new BaseResponse<object>
         {
@@ -68,8 +63,8 @@ public class AuthController : ControllerBase
     [Authorize]
     public async Task<IActionResult> ApplyInstitution([FromBody] Models.DTOs.Requests.ApplyInstitutionRequest request)
     {
-        var userId = _sessionService.GetCurrentUserId(User);
-        var result = await AuthOperations.ApplyInstitutionAsync(request, userId, _context, _auditService);
+        var userId = _sessionService.GetUserId();
+        var result = await _authOperations.ApplyInstitutionAsync(request, userId);
 
         if (!result.Success)
             return BadRequest(result);
@@ -81,7 +76,7 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequest request)
     {
-        var result = await AuthOperations.RefreshTokenAsync(request, _context, _sessionService, _auditService);
+        var result = await _authOperations.RefreshTokenAsync(request);
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }

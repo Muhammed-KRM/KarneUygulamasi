@@ -15,7 +15,7 @@ public class ApplicationContext : DbContext
     public DbSet<InstitutionUser> InstitutionUsers { get; set; }
     public DbSet<AccountLink> AccountLinks { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
-    
+
     // Authentication & Security
     public DbSet<RefreshToken> RefreshTokens { get; set; }
     public DbSet<EmailVerification> EmailVerifications { get; set; }
@@ -169,7 +169,7 @@ public class ApplicationContext : DbContext
         modelBuilder.Entity<ClassroomStudent>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.ClassroomId, e.StudentId }).IsUnique();
+            entity.HasIndex(e => new { e.ClassroomId, e.InstitutionUserId }).IsUnique();
             entity.HasIndex(e => e.RemovedAt); // For soft delete queries
             entity.HasOne(e => e.Classroom)
                 .WithMany(c => c.Students)
@@ -177,7 +177,7 @@ public class ApplicationContext : DbContext
                 .OnDelete(DeleteBehavior.NoAction); // Changed from Cascade to avoid multiple paths from Institution
             entity.HasOne(e => e.Student)
                 .WithMany()
-                .HasForeignKey(e => e.StudentId)
+                .HasForeignKey(e => e.InstitutionUserId)
                 .OnDelete(DeleteBehavior.NoAction);
         });
 

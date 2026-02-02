@@ -64,6 +64,9 @@ public class InstitutionOperations
         _context.InstitutionUsers.Add(institutionUser);
         await _context.SaveChangesAsync();
 
+        // Invalidate the target user's permission cache
+        await _sessionService.InvalidateUserCacheAsync(userId);
+
         return BaseResponse<bool>.SuccessResponse(true);
     }
 

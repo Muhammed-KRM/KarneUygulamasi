@@ -2,12 +2,13 @@ using KeremProject1backend.Core.Constants;
 using KeremProject1backend.Infrastructure;
 using KeremProject1backend.Models.DBs;
 using KeremProject1backend.Models.DTOs;
+using KeremProject1backend.Models.DTOs.Requests;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
+using KeremProject1backend.Models.DTOs.Responses;
 using Hangfire;
-
-namespace KeremProject1backend.Operations;
+using System.Text.Json;
 
 public class ExamOperations
 {
@@ -17,14 +18,16 @@ public class ExamOperations
     private readonly NotificationService _notificationService;
     private readonly CacheService _cacheService;
     private readonly AuthorizationService _authorizationService;
+    private readonly AuditService _auditService;
 
     public ExamOperations(
-        ApplicationContext context, 
-        SessionService sessionService, 
-        OpticalParserService opticalParserService, 
-        NotificationService notificationService, 
+        ApplicationContext context,
+        SessionService sessionService,
+        OpticalParserService opticalParserService,
+        NotificationService notificationService,
         CacheService cacheService,
-        AuthorizationService authorizationService)
+        AuthorizationService authorizationService,
+        AuditService auditService)
     {
         _context = context;
         _sessionService = sessionService;
@@ -32,9 +35,10 @@ public class ExamOperations
         _notificationService = notificationService;
         _cacheService = cacheService;
         _authorizationService = authorizationService;
+        _auditService = auditService;
     }
 
-    public async Task<BaseResponse<int>> CreateExamAsync(CreateExamDto dto)
+    public async Task<BaseResponse<int>> CreateExamAsync(CreateExamRequest dto)
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
@@ -47,6 +51,8 @@ public class ExamOperations
             return BaseResponse<int>.ErrorResponse(
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
+
+        var userId = _sessionService.GetUserId();
 
         var exam = new Exam
         {
@@ -64,6 +70,8 @@ public class ExamOperations
 
         _context.Exams.Add(exam);
         await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(userId, "ExamCreated", JsonSerializer.Serialize(new { ExamId = exam.Id, Title = exam.Title }));
 
         // Invalidate exam list caches
         await _cacheService.InvalidateExamCacheAsync();
@@ -86,12 +94,13 @@ public class ExamOperations
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
+        var userId = _sessionService.GetUserId();
         var exam = await _context.Exams.Include(e => e.Institution).FirstOrDefaultAsync(e => e.Id == examId);
         if (exam == null) return BaseResponse<bool>.ErrorResponse("Exam not found", ErrorCodes.GenericError);
 
-        var parsedLines = await _opticalParserService.ParseFileAsync(fileStream);
-        var answerKey = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(exam.AnswerKeyJson) ?? new();
-        var lessonConfigs = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, LessonConfig>>(exam.LessonConfigJson) ?? new();
+        var parsedLines = await _opticalParserService.ParseFileAsync(fileStream); // Fixed this line
+        var answerKey = JsonSerializer.Deserialize<Dictionary<string, string>>(exam.AnswerKeyJson) ?? new();
+        var lessonConfigs = JsonSerializer.Deserialize<Dictionary<string, LessonConfig>>(exam.LessonConfigJson) ?? new();
 
         // Optimization: Bulk fetch students for this institution
         var studentNumbers = parsedLines.Select(l => l.StudentNumber).ToList();
@@ -99,6 +108,7 @@ public class ExamOperations
             .Where(iu => iu.InstitutionId == exam.InstitutionId && iu.Role == InstitutionRole.Student && studentNumbers.Contains(iu.StudentNumber!))
             .ToDictionaryAsync(iu => iu.StudentNumber!, iu => iu);
 
+        int processedCount = 0;
         foreach (var line in parsedLines)
         {
             if (!students.TryGetValue(line.StudentNumber, out var student)) continue;
@@ -115,16 +125,19 @@ public class ExamOperations
                 TotalWrong = lessonResults.Values.Sum(r => r.Wrong),
                 TotalEmpty = lessonResults.Values.Sum(r => r.Empty),
                 TotalNet = lessonResults.Values.Sum(r => r.Net),
-                DetailedResultsJson = System.Text.Json.JsonSerializer.Serialize(lessonResults),
+                DetailedResultsJson = JsonSerializer.Serialize(lessonResults),
                 CreatedAt = DateTime.UtcNow,
                 Exam = null!,
                 Student = null!
             };
 
             _context.ExamResults.Add(examResult);
+            processedCount++;
         }
 
         await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(userId, "OpticalProcessed", JsonSerializer.Serialize(new { ExamId = examId, ResultCount = processedCount }));
 
         // Queue background job to calculate rankings
         BackgroundJob.Enqueue<KeremProject1backend.Jobs.CalculateRankingsJob>(job => job.Execute(examId));
@@ -146,6 +159,7 @@ public class ExamOperations
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
+        var userId = _sessionService.GetUserId();
         var results = await _context.ExamResults
             .Where(er => er.ExamId == examId)
             .ToListAsync();
@@ -192,6 +206,8 @@ public class ExamOperations
 
         // Queue background job to send bulk notifications
         BackgroundJob.Enqueue<KeremProject1backend.Jobs.BulkNotificationJob>(job => job.Execute(examId));
+
+        await _auditService.LogAsync(userId, "ExamResultsConfirmed", JsonSerializer.Serialize(new { ExamId = examId }));
 
         return BaseResponse<bool>.SuccessResponse(true);
     }
@@ -243,7 +259,7 @@ public class ExamOperations
                 Empty = kvp.Value.Empty,
                 Net = kvp.Value.Net,
                 SuccessRate = kvp.Value.SuccessRate,
-                TopicScores = kvp.Value.TopicScores ?? new List<TopicScore>()
+                TopicScores = kvp.Value.TopicScores?.Values.ToList() ?? new List<TopicScore>()
             }).ToList()
         };
 
@@ -522,7 +538,7 @@ public class ExamOperations
                     Empty = kvp.Value.Empty,
                     Net = kvp.Value.Net,
                     SuccessRate = kvp.Value.SuccessRate,
-                    TopicScores = kvp.Value.TopicScores ?? new List<TopicScore>()
+                    TopicScores = kvp.Value.TopicScores?.Values.ToList() ?? new List<TopicScore>()
                 }).ToList()
             });
         }
@@ -598,7 +614,7 @@ public class ExamOperations
                     Empty = kvp.Value.Empty,
                     Net = kvp.Value.Net,
                     SuccessRate = kvp.Value.SuccessRate,
-                    TopicScores = kvp.Value.TopicScores ?? new List<TopicScore>()
+                    TopicScores = kvp.Value.TopicScores?.Values.ToList() ?? new List<TopicScore>()
                 }).ToList()
             });
         }
@@ -663,62 +679,3 @@ public class LessonReportDto
     public List<TopicScore> TopicScores { get; set; } = new();
 }
 
-public class CreateExamDto
-{
-    public int InstitutionId { get; set; }
-    public int? ClassroomId { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public ExamType Type { get; set; }
-    public DateTime ExamDate { get; set; }
-    public string AnswerKeyJson { get; set; } = "{}";
-    public string LessonConfigJson { get; set; } = "{}";
-}
-
-public class ExamListDto
-{
-    public int Id { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public DateTime ExamDate { get; set; }
-    public int InstitutionId { get; set; }
-    public string InstitutionName { get; set; } = string.Empty;
-    public int? ClassroomId { get; set; }
-    public string? ClassroomName { get; set; }
-    public DateTime CreatedAt { get; set; }
-    public int ResultCount { get; set; }
-}
-
-public class ExamDetailDto
-{
-    public int Id { get; set; }
-    public string Title { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public DateTime ExamDate { get; set; }
-    public int InstitutionId { get; set; }
-    public string InstitutionName { get; set; } = string.Empty;
-    public int? ClassroomId { get; set; }
-    public string? ClassroomName { get; set; }
-    public string AnswerKeyJson { get; set; } = "{}";
-    public string LessonConfigJson { get; set; } = "{}";
-    public DateTime CreatedAt { get; set; }
-    public int ResultCount { get; set; }
-    public int ConfirmedCount { get; set; }
-    public bool IsConfirmed { get; set; }
-}
-
-public class ExamResultListDto
-{
-    public int Id { get; set; }
-    public int StudentId { get; set; }
-    public string StudentName { get; set; } = string.Empty;
-    public string StudentNumber { get; set; } = string.Empty;
-    public float TotalScore { get; set; }
-    public float TotalNet { get; set; }
-    public int TotalCorrect { get; set; }
-    public int TotalWrong { get; set; }
-    public int TotalEmpty { get; set; }
-    public int? ClassRank { get; set; }
-    public int? InstitutionRank { get; set; }
-    public bool IsConfirmed { get; set; }
-    public DateTime CreatedAt { get; set; }
-}

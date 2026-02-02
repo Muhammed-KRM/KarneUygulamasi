@@ -47,37 +47,73 @@ public class OpticalParserService
             if (!lessonConfigs.TryGetValue(lessonName, out var config)) continue;
 
             // Extract answers for this specific lesson
-            // config.StartIndex might need to be adjusted based on total length
+            if (config.StartIndex < 0 || config.StartIndex >= studentAnswers.Length) continue;
+
             string studentLessonAnswers = studentAnswers.Substring(config.StartIndex,
                 Math.Min(config.QuestionCount, studentAnswers.Length - config.StartIndex));
 
-            int correct = 0, wrong = 0, empty = 0;
+            var lessonScore = new LessonScore();
 
             for (int i = 0; i < correctAnswers.Length && i < studentLessonAnswers.Length; i++)
             {
                 char studentAns = studentLessonAnswers[i];
                 char correctAns = correctAnswers[i];
 
-                if (studentAns == ' ' || studentAns == '0') empty++;
-                else if (studentAns == correctAns) correct++;
-                else wrong++;
+                bool isCorrect = studentAns == correctAns;
+                bool isEmpty = studentAns == ' ' || studentAns == '0';
+                bool isWrong = !isEmpty && !isCorrect;
+
+                if (isCorrect) lessonScore.Correct++;
+                else if (isEmpty) lessonScore.Empty++;
+                else lessonScore.Wrong++;
+
+                // Topic Mapping
+                var topicName = GetTopicForQuestion(i, config.TopicMapping);
+                if (!string.IsNullOrEmpty(topicName))
+                {
+                    if (!lessonScore.TopicScores.ContainsKey(topicName))
+                        lessonScore.TopicScores[topicName] = new TopicScore();
+
+                    var topicScore = lessonScore.TopicScores[topicName];
+                    if (isCorrect) topicScore.Correct++;
+                    else if (isEmpty) topicScore.Empty++;
+                    else topicScore.Wrong++;
+                }
             }
 
-            float net = correct - (wrong / 4.0f);
-            int successRate = correctAnswers.Length > 0 ? (int)((correct / (float)correctAnswers.Length) * 100) : 0;
+            lessonScore.Net = lessonScore.Correct - (lessonScore.Wrong / 4.0f);
+            lessonScore.SuccessRate = correctAnswers.Length > 0 ? (int)((lessonScore.Correct / (float)correctAnswers.Length) * 100) : 0;
 
-            results[lessonName] = new LessonScore
+            // Calculate Topic Nets
+            foreach (var ts in lessonScore.TopicScores.Values)
             {
-                Correct = correct,
-                Wrong = wrong,
-                Empty = empty,
-                Net = net,
-                SuccessRate = successRate,
-                TopicScores = new List<TopicScore>() // Topic scores can be calculated separately if needed
-            };
+                ts.Net = ts.Correct - (ts.Wrong / 4.0f);
+            }
+
+            results[lessonName] = lessonScore;
         }
 
         return results;
+    }
+
+    private string? GetTopicForQuestion(int questionIndex, Dictionary<string, string> topicMapping)
+    {
+        if (topicMapping == null) return null;
+
+        foreach (var mapping in topicMapping)
+        {
+            var range = mapping.Key.Split('-');
+            if (range.Length == 2 && int.TryParse(range[0], out int start) && int.TryParse(range[1], out int end))
+            {
+                if (questionIndex >= start && questionIndex <= end)
+                    return mapping.Value;
+            }
+            else if (int.TryParse(mapping.Key, out int single) && single == questionIndex)
+            {
+                return mapping.Value;
+            }
+        }
+        return null;
     }
 }
 
@@ -94,7 +130,7 @@ public class LessonConfig
 {
     public int StartIndex { get; set; }
     public int QuestionCount { get; set; }
-    public required Dictionary<string, string> TopicMapping { get; set; } // e.g., "0-9": "Topic A"
+    public Dictionary<string, string> TopicMapping { get; set; } = new(); // e.g., "0-9": "Topic A"
 }
 
 public class LessonScore
@@ -104,7 +140,7 @@ public class LessonScore
     public int Empty { get; set; }
     public float Net { get; set; }
     public int SuccessRate { get; set; }
-    public List<TopicScore>? TopicScores { get; set; }
+    public Dictionary<string, TopicScore> TopicScores { get; set; } = new();
 }
 
 public class TopicScore
