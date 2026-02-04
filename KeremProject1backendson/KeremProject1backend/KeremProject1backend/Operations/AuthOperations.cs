@@ -188,6 +188,13 @@ public class AuthOperations
         institution.SubscriptionStartDate = DateTime.UtcNow;
         institution.SubscriptionEndDate = DateTime.UtcNow.AddYears(1);
 
+        // Update Manager's Global Role
+        var manager = await _context.Users.FindAsync(institution.ManagerUserId);
+        if (manager != null && manager.GlobalRole != UserRole.Admin && manager.GlobalRole != UserRole.AdminAdmin)
+        {
+            manager.GlobalRole = UserRole.Manager;
+        }
+
         await _context.SaveChangesAsync();
 
         // CRITICAL: Invalidate manager's permission cache because they now have an Active institution

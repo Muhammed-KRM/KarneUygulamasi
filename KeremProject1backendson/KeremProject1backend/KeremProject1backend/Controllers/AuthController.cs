@@ -26,12 +26,19 @@ public class AuthController : ControllerBase
     [AllowAnonymous]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request)
     {
-        var result = await _authOperations.RegisterAsync(request);
+        try
+        {
+            var result = await _authOperations.RegisterAsync(request);
 
-        if (!result.Success)
-            return BadRequest(result);
+            if (!result.Success)
+                return BadRequest(result);
 
-        return Ok(result);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { error = ex.Message, stackTrace = ex.StackTrace, innerException = ex.InnerException?.Message });
+        }
     }
 
     [HttpPost("login")]

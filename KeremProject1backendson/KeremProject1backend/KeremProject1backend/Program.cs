@@ -23,20 +23,22 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddDbContext<ApplicationContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// 2. Redis Cache
-var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
-builder.Services.AddStackExchangeRedisCache(options =>
-{
-    options.Configuration = redisConnectionString;
-    options.InstanceName = "KarneProject_";
-});
+// 2. Cache (Switched to Memory Cache for testing without Redis)
+builder.Services.AddDistributedMemoryCache();
+
+// var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
+// builder.Services.AddStackExchangeRedisCache(options =>
+// {
+//     options.Configuration = redisConnectionString;
+//     options.InstanceName = "KarneProject_";
+// });
 
 // Redis Connection Multiplexer for advanced operations (pattern matching, etc.)
-if (!string.IsNullOrEmpty(redisConnectionString))
-{
-    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-        ConnectionMultiplexer.Connect(redisConnectionString));
-}
+// if (!string.IsNullOrEmpty(redisConnectionString))
+// {
+//     builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+//         ConnectionMultiplexer.Connect(redisConnectionString));
+// }
 
 // 3. Core Services
 builder.Services.AddScoped<SessionService>();
@@ -222,14 +224,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseExceptionHandler();
+// app.UseExceptionHandler();
 
 app.UseCors("AllowAll");
 
 // Middleware Pipeline (Order matters!)
 app.UseMiddleware<KeremProject1backend.Infrastructure.Middlewares.RequestLoggingMiddleware>(); // Log requests first
 app.UseMiddleware<TokenBlacklistMiddleware>(); // Check token blacklist
-app.UseMiddleware<GlobalExceptionMiddleware>(); // Catch exceptions
+// app.UseMiddleware<GlobalExceptionMiddleware>(); // Catch exceptions (Temporarily disabled for debugging)
 
 app.UseAuthentication();
 app.UseAuthorization();
