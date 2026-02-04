@@ -139,6 +139,11 @@ public class ExamOperations
 
         await _auditService.LogAsync(userId, "OpticalProcessed", JsonSerializer.Serialize(new { ExamId = examId, ResultCount = processedCount }));
 
+        // Invalidate exam caches
+        await _cacheService.RemoveByPatternAsync($"exam_results_{examId}_*");
+        await _cacheService.RemoveByPatternAsync($"exam_detail_{examId}");
+        await _cacheService.RemoveByPatternAsync($"Exam:{examId}:*");
+
         // Queue background job to calculate rankings
         BackgroundJob.Enqueue<KeremProject1backend.Jobs.CalculateRankingsJob>(job => job.Execute(examId));
 
@@ -203,6 +208,12 @@ public class ExamOperations
         // Invalidate exam result caches
         await _cacheService.RemoveByPatternAsync($"exam_results_{examId}_*");
         await _cacheService.RemoveByPatternAsync($"exam_detail_{examId}");
+
+        // Invalidate student report caches (results are now confirmed)
+        foreach (var result in results)
+        {
+            await _cacheService.RemoveByPatternAsync($"Student:{result.StudentId}:*");
+        }
 
         // Queue background job to send bulk notifications
         BackgroundJob.Enqueue<KeremProject1backend.Jobs.BulkNotificationJob>(job => job.Execute(examId));
@@ -494,6 +505,14 @@ public class ExamOperations
 
     public async Task<BaseResponse<List<StudentReportDto>>> GetStudentAllReportsAsync(int studentId, int currentUserId)
     {
+        // Cache key for student reports
+        var cacheKey = $"Student:{studentId}:AllReports";
+
+        // Try cache first
+        var cachedReports = await _cacheService.GetAsync<List<StudentReportDto>>(cacheKey);
+        if (cachedReports != null)
+            return BaseResponse<List<StudentReportDto>>.SuccessResponse(cachedReports);
+
         // Authorization: Student can only see their own reports, or teacher/admin can see any
         var isOwner = studentId == currentUserId;
         var isTeacher = await _context.InstitutionUsers.AnyAsync(iu =>
@@ -542,6 +561,9 @@ public class ExamOperations
                 }).ToList()
             });
         }
+
+        // Cache for 30 minutes
+        await _cacheService.SetAsync(cacheKey, reports, TimeSpan.FromMinutes(30));
 
         return BaseResponse<List<StudentReportDto>>.SuccessResponse(reports);
     }

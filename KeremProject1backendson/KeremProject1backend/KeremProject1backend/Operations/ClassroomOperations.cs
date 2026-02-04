@@ -366,6 +366,14 @@ public class ClassroomOperations
 
     public async Task<BaseResponse<List<ClassroomStudentDto>>> GetStudentsAsync(int classroomId, int page = 1, int limit = 50, string? search = null)
     {
+        // Cache key with pagination and search
+        var cacheKey = $"Classroom:{classroomId}:Students:{page}:{limit}:{search ?? "all"}";
+
+        // Try cache first
+        var cachedStudents = await _cacheService.GetAsync<List<ClassroomStudentDto>>(cacheKey);
+        if (cachedStudents != null)
+            return BaseResponse<List<ClassroomStudentDto>>.SuccessResponse(cachedStudents);
+
         var query = _context.ClassroomStudents
             .Include(cs => cs.Student)
                 .ThenInclude(s => s.User)
@@ -391,6 +399,9 @@ public class ClassroomOperations
                 AssignedAt = cs.AssignedAt
             })
             .ToListAsync();
+
+        // Cache for 15 minutes
+        await _cacheService.SetAsync(cacheKey, students, TimeSpan.FromMinutes(15));
 
         return BaseResponse<List<ClassroomStudentDto>>.SuccessResponse(students);
     }

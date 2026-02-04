@@ -58,6 +58,8 @@ builder.Services.AddScoped<SocialOperations>();
 // Background Jobs
 builder.Services.AddScoped<KeremProject1backend.Jobs.CalculateRankingsJob>();
 builder.Services.AddScoped<KeremProject1backend.Jobs.BulkNotificationJob>();
+builder.Services.AddScoped<KeremProject1backend.Jobs.CacheCleanupJob>();
+builder.Services.AddScoped<KeremProject1backend.Jobs.NotificationCleanupJob>();
 
 // 4. Authentication (JWT)
 builder.Services.AddAuthentication(options =>
@@ -240,6 +242,17 @@ app.MapControllers();
 // SignalR Hubs
 app.MapHub<KeremProject1backend.Hubs.ChatHub>("/hubs/chat");
 app.MapHub<KeremProject1backend.Hubs.NotificationHub>("/hubs/notification");
+
+// Recurring Background Jobs
+RecurringJob.AddOrUpdate<KeremProject1backend.Jobs.CacheCleanupJob>(
+    "cache-cleanup",
+    job => job.Execute(),
+    Cron.Daily(3)); // Run daily at 3 AM
+
+RecurringJob.AddOrUpdate<KeremProject1backend.Jobs.NotificationCleanupJob>(
+    "notification-cleanup",
+    job => job.Execute(),
+    Cron.Weekly(DayOfWeek.Sunday, 2)); // Run every Sunday at 2 AM
 
 // Seed Data
 await KeremProject1backend.Infrastructure.Data.DataSeeder.SeedAsync(app);
