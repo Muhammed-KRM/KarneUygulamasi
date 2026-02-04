@@ -80,6 +80,10 @@ public class MessageOperations
         var isMember = await _context.ConversationMembers.AnyAsync(cm => cm.ConversationId == conversationId && cm.UserId == userId);
         if (!isMember) return BaseResponse<bool>.ErrorResponse("Unauthorized", ErrorCodes.AccessDenied);
 
+        // Get sender info for SignalR broadcast
+        var sender = await _context.Users.FindAsync(userId);
+        if (sender == null) return BaseResponse<bool>.ErrorResponse("User not found", ErrorCodes.GenericError);
+
         var message = new Message
         {
             ConversationId = conversationId,
@@ -110,16 +114,17 @@ public class MessageOperations
         // Audit Log
         await _auditService.LogAsync(userId, "MessageSent", JsonSerializer.Serialize(new { MessageId = message.Id, ConversationId = conversationId }));
 
-        // Notify via SignalR
+        // Notify via SignalR (Real-time broadcast)
         await _chatHub.Clients.Group($"Conv_{conversationId}").SendAsync("ReceiveMessage", new
         {
             Id = message.Id,
-            ConversationId = message.Id,
-            SenderId = message.SenderId,
-            Content = message.Content,
-            Type = message.Type,
-            AttachedExamId = message.AttachedExamId,
-            AttachedExamResultId = message.AttachedExamResultId,
+            ConversationId = conversationId,
+            SenderId = userId,
+            SenderName = sender.FullName, // Frontend needs this
+            Content = content,
+            Type = type,
+            AttachedExamId = attachedExamId,
+            AttachedExamResultId = attachedResultId,
             SentAt = message.SentAt
         });
 

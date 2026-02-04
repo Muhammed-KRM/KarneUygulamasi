@@ -69,31 +69,6 @@ public class ChatHub : Hub
         await Clients.Caller.SendAsync("LeftConversation", conversationId);
     }
 
-    /// <summary>
-    /// Send a message to a conversation
-    /// Message is saved to DB by MessageOperations, this just broadcasts it
-    /// </summary>
-    public async Task SendMessage(int conversationId, string messageContent)
-    {
-        var userId = int.Parse(Context.User!.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)!.Value);
-        var user = await _context.Users.FindAsync(userId);
-
-        if (user == null)
-        {
-            await Clients.Caller.SendAsync("Error", "User not found");
-            return;
-        }
-
-        // Broadcast message to all participants in the conversation
-        await Clients.Group($"Conv_{conversationId}").SendAsync("ReceiveMessage", new
-        {
-            ConversationId = conversationId,
-            SenderId = userId,
-            SenderName = user.FullName,
-            Content = messageContent,
-            SentAt = DateTime.UtcNow
-        });
-    }
 
     /// <summary>
     /// Typing indicator for real-time feedback
