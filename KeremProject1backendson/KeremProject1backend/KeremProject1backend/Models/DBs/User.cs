@@ -28,4 +28,6 @@ public class User
     // Navigation Properties
     public ICollection<InstitutionUser> InstitutionMemberships { get; set; } = new List<InstitutionUser>();
     public ICollection<AccountLink> AccountLinks { get; set; } = new List<AccountLink>();
+    public ICollection<InstitutionOwner> OwnedInstitutions { get; set; } = new List<InstitutionOwner>();
 }
+

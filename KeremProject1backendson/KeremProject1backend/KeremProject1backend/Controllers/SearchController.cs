@@ -51,7 +51,7 @@ public class SearchController : BaseController
         var currentUserId = GetCurrentUserId();
         var userQuery = _context.Users
             .AsNoTracking()
-            .Where(u => 
+            .Where(u =>
                 u.Username.Contains(query) ||
                 u.FullName.Contains(query) ||
                 u.Email.Contains(query))
@@ -70,11 +70,14 @@ public class SearchController : BaseController
         }
 
         // ProfileVisibility kontrolü
-        var isTeacher = await _context.InstitutionUsers
+        var isTeacherOrOwner = await _context.InstitutionUsers
             .AsNoTracking()
             .AnyAsync(iu =>
                 iu.UserId == currentUserId &&
-                iu.Role == InstitutionRole.Teacher);
+                (iu.Role == InstitutionRole.Teacher || iu.Role == InstitutionRole.Manager))
+            || await _context.InstitutionOwners
+            .AsNoTracking()
+            .AnyAsync(io => io.UserId == currentUserId);
 
         var users = await userQuery
             .Include(u => u.InstitutionMemberships)
@@ -108,7 +111,7 @@ public class SearchController : BaseController
             Institutions = u.Institutions,
             IsVisible = u.Id == currentUserId ||
                        u.ProfileVisibility == ProfileVisibility.PublicToAll ||
-                       (u.ProfileVisibility == ProfileVisibility.TeachersOnly && isTeacher)
+                       (u.ProfileVisibility == ProfileVisibility.TeachersOnly && isTeacherOrOwner)
         }).ToList();
 
         // Cache for 2 minutes
@@ -141,7 +144,8 @@ public class SearchController : BaseController
         }
 
         var institutionQuery = _context.Institutions
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
             .AsNoTracking()
             .Where(i =>
                 i.Name.Contains(query) ||
@@ -160,7 +164,7 @@ public class SearchController : BaseController
                 Id = i.Id,
                 Name = i.Name,
                 LicenseNumber = i.LicenseNumber,
-                ManagerName = i.Manager.FullName,
+                ManagerName = i.Owners.Where(o => o.IsPrimaryOwner).Select(o => o.User.FullName).FirstOrDefault() ?? "Unknown",
                 Status = i.Status.ToString(),
                 CreatedAt = i.CreatedAt
             })
@@ -209,6 +213,9 @@ public class SearchController : BaseController
             var userInstitutionIds = await _context.InstitutionUsers
                 .Where(iu => iu.UserId == currentUserId)
                 .Select(iu => iu.InstitutionId)
+                .Union(_context.InstitutionOwners
+                    .Where(io => io.UserId == currentUserId)
+                    .Select(io => io.InstitutionId))
                 .ToListAsync();
             classroomQuery = classroomQuery.Where(c => userInstitutionIds.Contains(c.InstitutionId));
         }
@@ -280,6 +287,9 @@ public class SearchController : BaseController
             var userInstitutionIds = await _context.InstitutionUsers
                 .Where(iu => iu.UserId == currentUserId)
                 .Select(iu => iu.InstitutionId)
+                .Union(_context.InstitutionOwners
+                    .Where(io => io.UserId == currentUserId)
+                    .Select(io => io.InstitutionId))
                 .ToListAsync();
             examQuery = examQuery.Where(e => userInstitutionIds.Contains(e.InstitutionId));
         }

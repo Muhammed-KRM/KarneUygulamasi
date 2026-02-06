@@ -8,5 +8,6 @@ public enum UserRole : byte
     Teacher = 3,           // Öğretmen (kuruma bağlı veya bağımsız)
     Student = 4,           // Öğrenci (kuruma bağlı veya bağımsız)
     StandaloneTeacher = 5, // Bağımsız öğretmen (kuruma bağlı değil)
-    StandaloneStudent = 6  // Bağımsız öğrenci (kuruma bağlı değil)
+    StandaloneStudent = 6, // Bağımsız öğrenci (kuruma bağlı değil)
+    InstitutionOwner = 7   // Dershane sahibi (kurum başvurusu yapabilir, manager oluşturabilir)
 }

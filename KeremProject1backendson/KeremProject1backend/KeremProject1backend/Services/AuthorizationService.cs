@@ -27,7 +27,7 @@ public class AuthorizationService
     /// </summary>
     /// <param name="requiredRoles">Gerekli roller (en az biri olmalı)</param>
     /// <returns>Yetki varsa null, yoksa BaseResponse hatası</returns>
-    public BaseResponse<string>? RequireGlobalRole(params UserRole[] requiredRoles)
+    public virtual BaseResponse<string>? RequireGlobalRole(params UserRole[] requiredRoles)
     {
         var userId = _sessionService.GetUserId();
         var user = _context.Users
@@ -41,10 +41,30 @@ public class AuthorizationService
         {
             var roleNames = string.Join(" veya ", requiredRoles.Select(r => r.ToString()));
             return BaseResponse<string>.ErrorResponse(
-                $"Bu işlem için {roleNames} yetkisi gereklidir", 
+                $"Bu işlem için {roleNames} yetkisi gereklidir",
                 ErrorCodes.AccessDenied);
         }
 
         return null; // Yetki var
+    }
+
+    /// <summary>
+    /// Checks if user has access to the institution (Owner or Manager)
+    /// </summary>
+    public virtual async Task<bool> HasInstitutionAccessAsync(int userId, int institutionId)
+    {
+        // 1. Check if user is an owner
+        var isOwner = await _context.InstitutionOwners.AnyAsync(
+            o => o.InstitutionId == institutionId && o.UserId == userId);
+        if (isOwner) return true;
+
+        // 2. Check if user is a manager
+        var isManager = await _context.InstitutionUsers.AnyAsync(
+            iu => iu.InstitutionId == institutionId &&
+                  iu.UserId == userId &&
+                  iu.Role == InstitutionRole.Manager &&
+                  iu.IsActive);
+
+        return isManager;
     }
 }

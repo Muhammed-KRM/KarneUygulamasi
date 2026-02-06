@@ -22,9 +22,9 @@ public class AdminOperations
     private readonly AuthorizationService _authorizationService;
 
     public AdminOperations(
-        ApplicationContext context, 
-        AuditService auditService, 
-        SessionService sessionService, 
+        ApplicationContext context,
+        AuditService auditService,
+        SessionService sessionService,
         CacheService cacheService,
         AuthorizationService authorizationService)
     {
@@ -37,10 +37,10 @@ public class AdminOperations
 
     // Kullanıcı Yönetimi
     public async Task<BaseResponse<PagedResult<UserListDto>>> GetAllUsersAsync(
-        int page = 1, 
-        int limit = 20, 
-        string? search = null, 
-        UserStatus? status = null, 
+        int page = 1,
+        int limit = 20,
+        string? search = null,
+        UserStatus? status = null,
         UserRole? role = null,
         bool forceRefresh = false)
     {
@@ -67,7 +67,7 @@ public class AdminOperations
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(u => 
+            query = query.Where(u =>
                 u.Username.Contains(search) ||
                 u.FullName.Contains(search) ||
                 u.Email.Contains(search));
@@ -181,7 +181,7 @@ public class AdminOperations
         await _cacheService.InvalidateAdminCacheAsync();
         await _cacheService.RemoveByPatternAsync("admin_users_*"); // Invalidate all user list caches
 
-        await _auditService.LogAsync(adminId, "UserUpdatedByAdmin", 
+        await _auditService.LogAsync(adminId, "UserUpdatedByAdmin",
             JsonSerializer.Serialize(new { UserId = userId, Changes = request }));
 
         return BaseResponse<string>.SuccessResponse("User updated successfully");
@@ -201,7 +201,7 @@ public class AdminOperations
         await _cacheService.InvalidateAdminCacheAsync();
         await _cacheService.RemoveByPatternAsync("admin_users_*");
 
-        await _auditService.LogAsync(adminId, "UserStatusChanged", 
+        await _auditService.LogAsync(adminId, "UserStatusChanged",
             JsonSerializer.Serialize(new { UserId = userId, NewStatus = status.ToString(), Reason = reason }));
 
         return BaseResponse<string>.SuccessResponse($"User status changed to {status}");
@@ -222,7 +222,7 @@ public class AdminOperations
         await _cacheService.InvalidateAdminCacheAsync();
         await _cacheService.RemoveByPatternAsync("admin_users_*");
 
-        await _auditService.LogAsync(adminId, "UserDeletedByAdmin", 
+        await _auditService.LogAsync(adminId, "UserDeletedByAdmin",
             JsonSerializer.Serialize(new { UserId = userId }));
 
         return BaseResponse<string>.SuccessResponse("User deleted successfully");
@@ -245,7 +245,7 @@ public class AdminOperations
         await _context.SaveChangesAsync();
 
         // TODO: Send email with new password
-        await _auditService.LogAsync(adminId, "UserPasswordResetByAdmin", 
+        await _auditService.LogAsync(adminId, "UserPasswordResetByAdmin",
             JsonSerializer.Serialize(new { UserId = userId }));
 
         return BaseResponse<string>.SuccessResponse($"Password reset. New password: {newPassword}"); // In production, send via email
@@ -259,7 +259,8 @@ public class AdminOperations
         string? search = null)
     {
         var query = _context.Institutions
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
             .AsQueryable();
 
         if (status.HasValue)
@@ -267,7 +268,7 @@ public class AdminOperations
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            query = query.Where(i => 
+            query = query.Where(i =>
                 i.Name.Contains(search) ||
                 i.LicenseNumber.Contains(search));
         }
@@ -282,7 +283,7 @@ public class AdminOperations
                 Id = i.Id,
                 Name = i.Name,
                 LicenseNumber = i.LicenseNumber,
-                ManagerName = i.Manager.FullName,
+                ManagerName = i.Owners.Where(o => o.IsPrimaryOwner).Select(o => o.User.FullName).FirstOrDefault() ?? "Unknown",
                 Status = i.Status.ToString(),
                 CreatedAt = i.CreatedAt,
                 SubscriptionEndDate = i.SubscriptionEndDate
@@ -304,16 +305,21 @@ public class AdminOperations
     public async Task<BaseResponse<InstitutionDetailDto>> GetInstitutionAsync(int institutionId)
     {
         var institution = await _context.Institutions
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
             .FirstOrDefaultAsync(i => i.Id == institutionId);
 
         if (institution == null)
             return BaseResponse<InstitutionDetailDto>.ErrorResponse("Institution not found", ErrorCodes.AdminInstitutionNotFound);
 
+        // Get primary owner for manager info
+        var primaryOwner = institution.Owners.FirstOrDefault(o => o.IsPrimaryOwner);
+        var ownerUser = primaryOwner?.User;
+
         var memberCount = await _context.InstitutionUsers.CountAsync(iu => iu.InstitutionId == institutionId);
-        var studentCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var studentCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Student);
-        var teacherCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var teacherCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Teacher);
         var classroomCount = await _context.Classrooms.CountAsync(c => c.InstitutionId == institutionId);
         var examCount = await _context.Exams.CountAsync(e => e.InstitutionId == institutionId);
@@ -325,8 +331,8 @@ public class AdminOperations
             LicenseNumber = institution.LicenseNumber,
             Address = institution.Address,
             Phone = institution.Phone,
-            ManagerName = institution.Manager.FullName,
-            ManagerEmail = institution.Manager.Email,
+            ManagerName = ownerUser?.FullName ?? "Unknown",
+            ManagerEmail = ownerUser?.Email ?? "Unknown",
             Status = institution.Status.ToString(),
             SubscriptionStartDate = institution.SubscriptionStartDate,
             SubscriptionEndDate = institution.SubscriptionEndDate,
@@ -345,7 +351,7 @@ public class AdminOperations
     public async Task<BaseResponse<string>> RejectInstitutionAsync(int institutionId, string reason, int adminId)
     {
         var institution = await _context.Institutions
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
             .FirstOrDefaultAsync(i => i.Id == institutionId);
 
         if (institution == null)
@@ -358,7 +364,7 @@ public class AdminOperations
         await _context.SaveChangesAsync();
 
         // TODO: Send notification to manager
-        await _auditService.LogAsync(adminId, "InstitutionRejected", 
+        await _auditService.LogAsync(adminId, "InstitutionRejected",
             JsonSerializer.Serialize(new { InstitutionId = institutionId, Reason = reason }));
 
         return BaseResponse<string>.SuccessResponse("Institution rejected");
@@ -373,7 +379,7 @@ public class AdminOperations
         institution.Status = status;
         await _context.SaveChangesAsync();
 
-        await _auditService.LogAsync(adminId, "InstitutionStatusChanged", 
+        await _auditService.LogAsync(adminId, "InstitutionStatusChanged",
             JsonSerializer.Serialize(new { InstitutionId = institutionId, NewStatus = status.ToString(), Reason = reason }));
 
         return BaseResponse<string>.SuccessResponse($"Institution status changed to {status}");
@@ -397,7 +403,7 @@ public class AdminOperations
 
         await _context.SaveChangesAsync();
 
-        await _auditService.LogAsync(adminId, "InstitutionSubscriptionExtended", 
+        await _auditService.LogAsync(adminId, "InstitutionSubscriptionExtended",
             JsonSerializer.Serialize(new { InstitutionId = institutionId, Months = months }));
 
         return BaseResponse<string>.SuccessResponse($"Subscription extended by {months} months");
@@ -430,7 +436,7 @@ public class AdminOperations
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        await _auditService.LogAsync(adminId, "AdminCreated", 
+        await _auditService.LogAsync(adminId, "AdminCreated",
             JsonSerializer.Serialize(new { AdminId = user.Id, Role = request.Role.ToString() }));
 
         return BaseResponse<int>.SuccessResponse(user.Id);
@@ -562,8 +568,8 @@ public class AdminOperations
         {
             Id = al.Id,
             UserId = al.UserId,
-            UserName = al.UserId.HasValue && users.ContainsKey(al.UserId.Value) 
-                ? users[al.UserId.Value] 
+            UserName = al.UserId.HasValue && users.ContainsKey(al.UserId.Value)
+                ? users[al.UserId.Value]
                 : "System",
             Action = al.Action,
             Details = al.Details,

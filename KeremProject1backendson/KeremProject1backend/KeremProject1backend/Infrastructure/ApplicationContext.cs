@@ -14,6 +14,7 @@ public class ApplicationContext : DbContext
     public DbSet<Institution> Institutions { get; set; }
     public DbSet<InstitutionUser> InstitutionUsers { get; set; }
     public DbSet<AccountLink> AccountLinks { get; set; }
+    public DbSet<InstitutionOwner> InstitutionOwners { get; set; }
     public DbSet<AuditLog> AuditLogs { get; set; }
 
     // Authentication & Security
@@ -83,11 +84,23 @@ public class ApplicationContext : DbContext
             entity.Property(e => e.Phone).HasMaxLength(20);
 
             entity.Property(e => e.Status).HasConversion<byte>();
+        });
 
-            entity.HasOne(e => e.Manager)
-                .WithMany()
-                .HasForeignKey(e => e.ManagerUserId)
-                .OnDelete(DeleteBehavior.Restrict);
+        // InstitutionOwner Configuration (Many-to-Many: User <-> Institution)
+        modelBuilder.Entity<InstitutionOwner>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.InstitutionId }).IsUnique();
+
+            entity.HasOne(e => e.User)
+                .WithMany(u => u.OwnedInstitutions)
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.Institution)
+                .WithMany(i => i.Owners)
+                .HasForeignKey(e => e.InstitutionId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // InstitutionUser Configuration (Many-to-Many with Role)

@@ -17,8 +17,8 @@ public class AccountOperations
     private readonly AuthorizationService _authorizationService;
 
     public AccountOperations(
-        ApplicationContext context, 
-        SessionService sessionService, 
+        ApplicationContext context,
+        SessionService sessionService,
         NotificationService notificationService,
         AuthorizationService authorizationService)
     {
@@ -63,15 +63,16 @@ public class AccountOperations
         _context.AccountLinks.Add(accountLink);
         await _context.SaveChangesAsync();
 
-        // 4. Notify institution manager
-        var institution = await _context.Institutions
-            .Include(i => i.Manager)
-            .FirstOrDefaultAsync(i => i.Id == institutionId);
+        // 4. Notify institution owners
+        var owners = await _context.InstitutionOwners
+            .Where(o => o.InstitutionId == institutionId)
+            .Select(o => o.UserId)
+            .ToListAsync();
 
-        if (institution != null && institution.ManagerUserId > 0)
+        foreach (var ownerId in owners)
         {
             await _notificationService.SendNotificationAsync(
-                institution.ManagerUserId,
+                ownerId,
                 "Hesap Bağlama Talebi",
                 $"Yeni bir hesap bağlama talebi var. Öğrenci No: {studentNumber}",
                 NotificationType.System,
@@ -138,10 +139,16 @@ public class AccountOperations
         if (accountLink == null)
             return BaseResponse<bool>.ErrorResponse("Bağlantı talebi bulunamadı", ErrorCodes.GenericError);
 
-        var isManager = await _context.Institutions
-            .AnyAsync(i => i.Id == accountLink.InstitutionUser.InstitutionId && i.ManagerUserId == currentUserId);
+        // Check if user is owner or manager of this institution
+        var isOwner = await _context.InstitutionOwners.AnyAsync(
+            o => o.InstitutionId == accountLink.InstitutionUser.InstitutionId && o.UserId == currentUserId);
+        var isManager = await _context.InstitutionUsers.AnyAsync(
+            iu => iu.InstitutionId == accountLink.InstitutionUser.InstitutionId &&
+                  iu.UserId == currentUserId &&
+                  iu.Role == InstitutionRole.Manager &&
+                  iu.IsActive);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!isOwner && !isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<bool>.ErrorResponse("Yetkiniz yok", ErrorCodes.AccessDenied);
 
         accountLink.Status = LinkStatus.Rejected;
@@ -234,12 +241,17 @@ public class AccountOperations
         if (link == null)
             return BaseResponse<string>.ErrorResponse("Link not found", ErrorCodes.GenericError);
 
-        // Authorization: Only main user or manager can delete
+        // Authorization: Only main user, owner, or manager can delete
         var isMainUser = link.MainUserId == userId;
-        var isManager = await _context.Institutions.AnyAsync(i =>
-            i.Id == link.InstitutionUser.InstitutionId && i.ManagerUserId == userId);
+        var isOwner = await _context.InstitutionOwners.AnyAsync(
+            o => o.InstitutionId == link.InstitutionUser.InstitutionId && o.UserId == userId);
+        var isManager = await _context.InstitutionUsers.AnyAsync(
+            iu => iu.InstitutionId == link.InstitutionUser.InstitutionId &&
+                  iu.UserId == userId &&
+                  iu.Role == InstitutionRole.Manager &&
+                  iu.IsActive);
 
-        if (!isMainUser && !isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!isMainUser && !isOwner && !isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         _context.AccountLinks.Remove(link);

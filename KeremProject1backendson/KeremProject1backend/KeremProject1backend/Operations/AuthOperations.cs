@@ -39,7 +39,14 @@ public class AuthOperations
         // 2. Password hash
         PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
 
-        // 3. Create User
+        // 3. Determine role based on registration type
+        UserRole targetRole = UserRole.Student;
+        if (request.RegisterAsOwner)
+        {
+            targetRole = UserRole.InstitutionOwner;
+        }
+
+        // 4. Create User
         var user = new User
         {
             FullName = request.FullName,
@@ -47,7 +54,7 @@ public class AuthOperations
             Email = request.Email,
             PasswordHash = hash,
             PasswordSalt = salt,
-            GlobalRole = UserRole.Student,
+            GlobalRole = targetRole,
             Status = UserStatus.Active,
             ProfileVisibility = ProfileVisibility.PublicToAll,
             CreatedAt = DateTime.UtcNow
@@ -56,8 +63,8 @@ public class AuthOperations
         _context.Users.Add(user);
         await _context.SaveChangesAsync();
 
-        // 4. Audit log
-        await _auditService.LogAsync(user.Id, "UserRegistered", $"Username: {user.Username}");
+        // 5. Audit log
+        await _auditService.LogAsync(user.Id, "UserRegistered", $"Username: {user.Username}, Role: {targetRole}");
 
         return BaseResponse<string>.SuccessResponse("Registration successful. You can now log in.");
     }
@@ -136,18 +143,27 @@ public class AuthOperations
 
     public async Task<BaseResponse<string>> ApplyInstitutionAsync(ApplyInstitutionRequest request, int userId)
     {
-        // 1. Uniqueness check for License Number
+        // 1. Check if user is InstitutionOwner
+        var user = await _context.Users.FindAsync(userId);
+        if (user == null)
+            return BaseResponse<string>.ErrorResponse("User not found", ErrorCodes.NotFound);
+
+        if (user.GlobalRole != UserRole.InstitutionOwner &&
+            user.GlobalRole != UserRole.AdminAdmin &&
+            user.GlobalRole != UserRole.Admin)
+            return BaseResponse<string>.ErrorResponse("Only Institution Owners can apply for institutions", ErrorCodes.AccessDenied);
+
+        // 2. Uniqueness check for License Number
         if (await _context.Institutions.AnyAsync(i => i.LicenseNumber == request.LicenseNumber))
             return BaseResponse<string>.ErrorResponse("License number already registered", ErrorCodes.AuthLicenseNumberTaken);
 
-        // 2. Create Institution
+        // 3. Create Institution
         var institution = new Institution
         {
             Name = request.Name,
             LicenseNumber = request.LicenseNumber,
             Address = request.Address,
             Phone = request.Phone,
-            ManagerUserId = userId,
             Status = InstitutionStatus.PendingApproval,
             CreatedAt = DateTime.UtcNow
         };
@@ -155,19 +171,20 @@ public class AuthOperations
         _context.Institutions.Add(institution);
         await _context.SaveChangesAsync();
 
-        // 3. Create InstitutionUser (Manager role)
-        var membership = new InstitutionUser
+        // 4. Create InstitutionOwner (Primary owner)
+        var ownership = new InstitutionOwner
         {
             UserId = userId,
             InstitutionId = institution.Id,
-            Role = InstitutionRole.Manager,
-            JoinedAt = DateTime.UtcNow
+            IsPrimaryOwner = true,
+            AddedAt = DateTime.UtcNow,
+            AddedByUserId = null  // Self-applied
         };
 
-        _context.InstitutionUsers.Add(membership);
+        _context.InstitutionOwners.Add(ownership);
         await _context.SaveChangesAsync();
 
-        // 4. Audit log
+        // 5. Audit log
         await _auditService.LogAsync(userId, "InstitutionApplied", $"Institution: {institution.Name}");
 
         return BaseResponse<string>.SuccessResponse("Application submitted. Waiting for admin approval.");
@@ -175,7 +192,11 @@ public class AuthOperations
 
     public async Task<BaseResponse<string>> ApproveInstitutionAsync(int institutionId, int adminId)
     {
-        var institution = await _context.Institutions.FindAsync(institutionId);
+        var institution = await _context.Institutions
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
+            .FirstOrDefaultAsync(i => i.Id == institutionId);
+
         if (institution == null)
             return BaseResponse<string>.ErrorResponse("Institution not found", ErrorCodes.AdminInstitutionNotFound);
 
@@ -188,17 +209,13 @@ public class AuthOperations
         institution.SubscriptionStartDate = DateTime.UtcNow;
         institution.SubscriptionEndDate = DateTime.UtcNow.AddYears(1);
 
-        // Update Manager's Global Role
-        var manager = await _context.Users.FindAsync(institution.ManagerUserId);
-        if (manager != null && manager.GlobalRole != UserRole.Admin && manager.GlobalRole != UserRole.AdminAdmin)
-        {
-            manager.GlobalRole = UserRole.Manager;
-        }
-
         await _context.SaveChangesAsync();
 
-        // CRITICAL: Invalidate manager's permission cache because they now have an Active institution
-        await _sessionService.InvalidateUserCacheAsync(institution.ManagerUserId);
+        // Invalidate all owners' permission cache
+        foreach (var owner in institution.Owners)
+        {
+            await _sessionService.InvalidateUserCacheAsync(owner.UserId);
+        }
 
         await _auditService.LogAsync(adminId, "InstitutionApproved", $"InstitutionId: {institutionId}");
 
@@ -209,7 +226,8 @@ public class AuthOperations
     {
         var pending = await _context.Institutions
             .Where(i => i.Status == InstitutionStatus.PendingApproval)
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
             .ToListAsync();
 
         return BaseResponse<List<Institution>>.SuccessResponse(pending);

@@ -32,10 +32,13 @@ public class ClassroomOperations
         _authorizationService = authorizationService;
     }
 
+
+
     public async Task<BaseResponse<int>> CreateClassroomAsync(int institutionId, string name, int grade)
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Manager,
             UserRole.AdminAdmin,
             UserRole.Admin);
@@ -44,14 +47,22 @@ public class ClassroomOperations
                 authError.Error ?? "Yetkiniz yok",
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
+        var userId = _sessionService.GetUserId();
+
+        // 2. Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, institutionId);
+            if (!hasAccess)
+                return BaseResponse<int>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+        }
+
         // 2. Validation
         if (string.IsNullOrWhiteSpace(name))
             return BaseResponse<int>.ErrorResponse("Sınıf adı gereklidir", ErrorCodes.ValidationFailed);
 
         if (grade < 1 || grade > 12)
             return BaseResponse<int>.ErrorResponse("Geçersiz sınıf seviyesi", ErrorCodes.ValidationFailed);
-
-        var userId = _sessionService.GetUserId();
 
         var classroom = new Classroom
         {
@@ -90,6 +101,7 @@ public class ClassroomOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,
@@ -104,6 +116,14 @@ public class ClassroomOperations
         // studentInstitutionUserId is the ID from InstitutionUsers table
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, classroom.InstitutionId);
+            if (!hasAccess)
+                return BaseResponse<bool>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         var existing = await _context.ClassroomStudents.AnyAsync(cs =>
             cs.ClassroomId == classroomId &&
@@ -139,6 +159,7 @@ public class ClassroomOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,
@@ -152,6 +173,14 @@ public class ClassroomOperations
         var userId = _sessionService.GetUserId();
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null) return BaseResponse<bool>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, classroom.InstitutionId);
+            if (!hasAccess)
+                return BaseResponse<bool>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         var students = new List<ClassroomStudent>();
         foreach (var id in studentInstitutionUserIds)
@@ -271,6 +300,7 @@ public class ClassroomOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Manager,
             UserRole.AdminAdmin,
             UserRole.Admin);
@@ -282,6 +312,14 @@ public class ClassroomOperations
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, classroom.InstitutionId);
+            if (!hasAccess)
+                return BaseResponse<string>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         if (!string.IsNullOrWhiteSpace(request.Name))
             classroom.Name = request.Name;
@@ -302,6 +340,7 @@ public class ClassroomOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Manager,
             UserRole.AdminAdmin,
             UserRole.Admin);
@@ -313,6 +352,14 @@ public class ClassroomOperations
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, classroom.InstitutionId);
+            if (!hasAccess)
+                return BaseResponse<string>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+        }
 
         // Soft delete
         // Note: If Classroom has IsActive field, use it. Otherwise, we might need to add it.
@@ -333,6 +380,7 @@ public class ClassroomOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,
@@ -346,6 +394,29 @@ public class ClassroomOperations
         var classroom = await _context.Classrooms.FindAsync(classroomId);
         if (classroom == null)
             return BaseResponse<string>.ErrorResponse("Classroom not found", ErrorCodes.GenericError);
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, classroom.InstitutionId);
+
+            // Allow if Teacher/StandaloneTeacher?
+            if (!hasAccess)
+            {
+                var globalRole = _sessionService.GetUserPermissionsAsync(userId).Result.GlobalRole;
+                if (globalRole == UserRole.Teacher || globalRole == UserRole.StandaloneTeacher)
+                {
+                    // Allow for now to not break legacy teacher flow, or check if they are member
+                    var isMember = await _context.InstitutionUsers.AnyAsync(iu => iu.InstitutionId == classroom.InstitutionId && iu.UserId == userId && iu.IsActive);
+                    if (!isMember)
+                        return BaseResponse<string>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+                }
+                else
+                {
+                    return BaseResponse<string>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+                }
+            }
+        }
 
         var classroomStudent = await _context.ClassroomStudents
             .FirstOrDefaultAsync(cs => cs.ClassroomId == classroomId && cs.InstitutionUserId == studentId && cs.RemovedAt == null);

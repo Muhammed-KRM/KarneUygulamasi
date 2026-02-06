@@ -6,6 +6,7 @@ using KeremProject1backend.Models.DTOs.Requests;
 using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
+using KeremProject1backend.Core.Helpers;
 
 namespace KeremProject1backend.Operations;
 
@@ -18,9 +19,9 @@ public class InstitutionOperations
     private readonly AuthorizationService _authorizationService;
 
     public InstitutionOperations(
-        ApplicationContext context, 
-        SessionService sessionService, 
-        CacheService cacheService, 
+        ApplicationContext context,
+        SessionService sessionService,
+        CacheService cacheService,
         AuditService auditService,
         AuthorizationService authorizationService)
     {
@@ -29,6 +30,25 @@ public class InstitutionOperations
         _cacheService = cacheService;
         _auditService = auditService;
         _authorizationService = authorizationService;
+    }
+
+    /// <summary>
+    /// Checks if user is an owner or manager of the institution
+    /// </summary>
+    private async Task<bool> IsOwnerOrManagerAsync(int institutionId, int userId)
+    {
+        // Check if user is an owner
+        var isOwner = await _context.InstitutionOwners.AnyAsync(
+            o => o.InstitutionId == institutionId && o.UserId == userId);
+        if (isOwner) return true;
+
+        // Check if user is a manager in InstitutionUsers
+        var isManager = await _context.InstitutionUsers.AnyAsync(
+            iu => iu.InstitutionId == institutionId &&
+                  iu.UserId == userId &&
+                  iu.Role == InstitutionRole.Manager &&
+                  iu.IsActive);
+        return isManager;
     }
 
     public async Task<BaseResponse<bool>> AddUserToInstitutionAsync(int institutionId, int userId, InstitutionRole role, string? number = null)
@@ -97,7 +117,8 @@ public class InstitutionOperations
 
     public async Task<BaseResponse<List<MyInstitutionDto>>> GetMyInstitutionsAsync(int userId)
     {
-        var institutions = await _context.InstitutionUsers
+        // 1. Get where user is a member (Manager, Teacher, Student)
+        var memberInstitutions = await _context.InstitutionUsers
             .Include(iu => iu.Institution)
             .Where(iu => iu.UserId == userId && iu.IsActive)
             .Select(iu => new MyInstitutionDto
@@ -110,7 +131,36 @@ public class InstitutionOperations
             })
             .ToListAsync();
 
-        return BaseResponse<List<MyInstitutionDto>>.SuccessResponse(institutions);
+        // 2. Get where user is an Owner
+        var ownedInstitutions = await _context.InstitutionOwners
+            .Include(io => io.Institution)
+            .Where(io => io.UserId == userId)
+            .Select(io => new MyInstitutionDto
+            {
+                Id = io.InstitutionId,
+                Name = io.Institution.Name,
+                Role = "Owner",
+                Status = io.Institution.Status.ToString(),
+                JoinedAt = io.AddedAt
+            })
+            .ToListAsync();
+
+        // 3. Merge (Avoid duplicates if user is both owner and member)
+        var allInstitutions = memberInstitutions
+            .Concat(ownedInstitutions)
+            .GroupBy(i => i.Id)
+            .Select(g => g.First()) // Prefer Member role or Owner role? usually just showing once is enough.
+                                    // Or maybe show "Owner" if both exist?
+                                    // Let's prefer Owner if exists.
+            .Select(i =>
+            {
+                var isOwner = ownedInstitutions.Any(o => o.Id == i.Id);
+                if (isOwner) i.Role = "Owner";
+                return i;
+            })
+            .ToList();
+
+        return BaseResponse<List<MyInstitutionDto>>.SuccessResponse(allInstitutions);
     }
 
     public async Task<BaseResponse<InstitutionDetailResponseDto>> GetInstitutionAsync(int institutionId, int currentUserId, bool forceRefresh = false)
@@ -133,7 +183,8 @@ public class InstitutionOperations
             return BaseResponse<InstitutionDetailResponseDto>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         var institution = await _context.Institutions
-            .Include(i => i.Manager)
+            .Include(i => i.Owners)
+            .ThenInclude(o => o.User)
             .AsNoTracking()
             .FirstOrDefaultAsync(i => i.Id == institutionId);
 
@@ -141,9 +192,9 @@ public class InstitutionOperations
             return BaseResponse<InstitutionDetailResponseDto>.ErrorResponse("Institution not found", ErrorCodes.GenericError);
 
         var memberCount = await _context.InstitutionUsers.CountAsync(iu => iu.InstitutionId == institutionId && iu.IsActive);
-        var studentCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var studentCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Student && iu.IsActive);
-        var teacherCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var teacherCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Teacher && iu.IsActive);
         var classroomCount = await _context.Classrooms.CountAsync(c => c.InstitutionId == institutionId);
         var examCount = await _context.Exams.CountAsync(e => e.InstitutionId == institutionId);
@@ -155,8 +206,8 @@ public class InstitutionOperations
             LicenseNumber = institution.LicenseNumber,
             Address = institution.Address,
             Phone = institution.Phone,
-            ManagerName = institution.Manager.FullName,
-            ManagerEmail = institution.Manager.Email,
+            ManagerName = institution.Owners.FirstOrDefault(o => o.IsPrimaryOwner)?.User.FullName ?? "Unknown",
+            ManagerEmail = institution.Owners.FirstOrDefault(o => o.IsPrimaryOwner)?.User.Email ?? "Unknown",
             Status = institution.Status.ToString(),
             SubscriptionStartDate = institution.SubscriptionStartDate,
             SubscriptionEndDate = institution.SubscriptionEndDate,
@@ -180,11 +231,10 @@ public class InstitutionOperations
 
     public async Task<BaseResponse<string>> UpdateInstitutionAsync(int institutionId, UpdateInstitutionRequest request, int userId)
     {
-        // Authorization: Only manager can update
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == institutionId && i.ManagerUserId == userId);
+        // Authorization: Only owner or manager can update
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, userId);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         var institution = await _context.Institutions.FindAsync(institutionId);
@@ -206,7 +256,7 @@ public class InstitutionOperations
         await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
         await _cacheService.RemoveByPatternAsync("admin_institutions_*");
 
-        await _auditService.LogAsync(userId, "InstitutionUpdated", 
+        await _auditService.LogAsync(userId, "InstitutionUpdated",
             System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, Changes = request }));
 
         return BaseResponse<string>.SuccessResponse("Institution updated successfully");
@@ -268,15 +318,14 @@ public class InstitutionOperations
 
     public async Task<BaseResponse<string>> AddMemberAsync(int institutionId, AddMemberRequest request, int userId)
     {
-        // Authorization: Only manager can add members
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == institutionId && i.ManagerUserId == userId);
+        // Authorization: Only owner or manager can add members
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, userId);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         // Check if user already exists
-        var existing = await _context.InstitutionUsers.AnyAsync(iu => 
+        var existing = await _context.InstitutionUsers.AnyAsync(iu =>
             iu.UserId == request.UserId && iu.InstitutionId == institutionId);
 
         if (existing)
@@ -299,7 +348,7 @@ public class InstitutionOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
 
-        await _auditService.LogAsync(userId, "MemberAdded", 
+        await _auditService.LogAsync(userId, "MemberAdded",
             System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, UserId = request.UserId, Role = request.Role }));
 
         return BaseResponse<string>.SuccessResponse("Member added successfully");
@@ -307,11 +356,10 @@ public class InstitutionOperations
 
     public async Task<BaseResponse<string>> RemoveMemberAsync(int institutionId, int memberId, int userId)
     {
-        // Authorization: Only manager can remove members
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == institutionId && i.ManagerUserId == userId);
+        // Authorization: Only owner or manager can remove members
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, userId);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         var member = await _context.InstitutionUsers
@@ -330,7 +378,7 @@ public class InstitutionOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
 
-        await _auditService.LogAsync(userId, "MemberRemoved", 
+        await _auditService.LogAsync(userId, "MemberRemoved",
             System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, MemberId = memberId }));
 
         return BaseResponse<string>.SuccessResponse("Member removed successfully");
@@ -338,11 +386,10 @@ public class InstitutionOperations
 
     public async Task<BaseResponse<string>> UpdateMemberRoleAsync(int institutionId, int memberId, InstitutionRole newRole, int userId)
     {
-        // Authorization: Only manager can update roles
-        var isManager = await _context.Institutions.AnyAsync(i => 
-            i.Id == institutionId && i.ManagerUserId == userId);
+        // Authorization: Only owner or manager can update roles
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, userId);
 
-        if (!isManager && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
         var member = await _context.InstitutionUsers
@@ -361,7 +408,7 @@ public class InstitutionOperations
         // Invalidate cache
         await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
 
-        await _auditService.LogAsync(userId, "MemberRoleUpdated", 
+        await _auditService.LogAsync(userId, "MemberRoleUpdated",
             System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, MemberId = memberId, NewRole = newRole }));
 
         return BaseResponse<string>.SuccessResponse("Member role updated successfully");
@@ -387,9 +434,9 @@ public class InstitutionOperations
         if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
             return BaseResponse<InstitutionStatisticsDto>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
 
-        var studentCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var studentCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Student && iu.IsActive);
-        var teacherCount = await _context.InstitutionUsers.CountAsync(iu => 
+        var teacherCount = await _context.InstitutionUsers.CountAsync(iu =>
             iu.InstitutionId == institutionId && iu.Role == InstitutionRole.Teacher && iu.IsActive);
         var classroomCount = await _context.Classrooms.CountAsync(c => c.InstitutionId == institutionId);
         var examCount = await _context.Exams.CountAsync(e => e.InstitutionId == institutionId);
@@ -421,7 +468,135 @@ public class InstitutionOperations
 
         return BaseResponse<InstitutionStatisticsDto>.SuccessResponse(statistics);
     }
+    /// <summary>
+    /// Checks if user is an owner of the institution
+    /// </summary>
+    private async Task<bool> IsOwnerAsync(int institutionId, int userId)
+    {
+        return await _context.InstitutionOwners.AnyAsync(
+            o => o.InstitutionId == institutionId && o.UserId == userId);
+    }
+
+    public async Task<BaseResponse<int>> CreateManagerAsync(int institutionId, CreateManagerRequest request, int addedByUserId)
+    {
+        // Authorization: Only owner or AdminAdmin can create manager
+        var isOwner = await IsOwnerAsync(institutionId, addedByUserId);
+        if (!isOwner && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<int>.ErrorResponse("Access denied. Only owners can create managers.", ErrorCodes.AccessDenied);
+
+        // Check if email exists
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            return BaseResponse<int>.ErrorResponse("Email already registered", "USER_EXISTS");
+
+        // Hash password
+        KeremProject1backend.Core.Helpers.PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
+
+        // 1. Create User
+        var user = new User
+        {
+            FullName = request.FullName,
+            Email = request.Email,
+            Username = request.Email, // Default username = email
+            PasswordHash = hash,
+            PasswordSalt = salt,
+            Phone = request.Phone,
+            GlobalRole = UserRole.Manager, // Global role
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        // 2. Add to Institution as Manager
+        var institutionUser = new InstitutionUser
+        {
+            UserId = user.Id,
+            InstitutionId = institutionId,
+            Role = InstitutionRole.Manager,
+            IsActive = true,
+            JoinedAt = DateTime.UtcNow,
+            EmployeeNumber = "MNG-" + new Random().Next(1000, 9999) // Auto-generate simple number
+        };
+
+        _context.InstitutionUsers.Add(institutionUser);
+        await _context.SaveChangesAsync();
+
+        // Audit & Log
+        await _auditService.LogAsync(addedByUserId, "ManagerCreated",
+            System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, NewManagerId = user.Id }));
+
+        return BaseResponse<int>.SuccessResponse(user.Id);
+    }
+
+    public async Task<BaseResponse<string>> UpdateManagerAsync(int institutionId, int managerId, UpdateUserRequest request, int currentUserId)
+    {
+        // Authorization: Only owner or AdminAdmin
+        var isOwner = await IsOwnerAsync(institutionId, currentUserId);
+        if (!isOwner && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
+
+        var manager = await _context.InstitutionUsers
+            .Include(iu => iu.User)
+            .FirstOrDefaultAsync(iu => iu.InstitutionId == institutionId && iu.UserId == managerId && iu.Role == InstitutionRole.Manager && iu.IsActive);
+
+        if (manager == null)
+            return BaseResponse<string>.ErrorResponse("Manager not found", ErrorCodes.GenericError);
+
+        // Update User info
+        if (!string.IsNullOrWhiteSpace(request.FullName)) manager.User.FullName = request.FullName;
+        if (!string.IsNullOrWhiteSpace(request.Email))
+        {
+            // Check duplications if email changed
+            if (manager.User.Email != request.Email && await _context.Users.AnyAsync(u => u.Email == request.Email))
+                return BaseResponse<string>.ErrorResponse("Email already taken", "USER_EXISTS");
+
+            manager.User.Email = request.Email;
+            manager.User.Username = request.Email;
+        }
+        if (!string.IsNullOrWhiteSpace(request.Phone)) manager.User.Phone = request.Phone;
+
+        await _context.SaveChangesAsync();
+
+        // Invalidate cache
+        await _sessionService.InvalidateUserCacheAsync(managerId);
+        await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
+
+        return BaseResponse<string>.SuccessResponse("Manager updated successfully");
+    }
+
+    public async Task<BaseResponse<string>> RemoveManagerAsync(int institutionId, int managerId, int currentUserId)
+    {
+        // Authorization: Only owner or AdminAdmin
+        var isOwner = await IsOwnerAsync(institutionId, currentUserId);
+        if (!isOwner && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<string>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
+
+        var manager = await _context.InstitutionUsers
+            .FirstOrDefaultAsync(iu => iu.InstitutionId == institutionId && iu.UserId == managerId && iu.Role == InstitutionRole.Manager && iu.IsActive);
+
+        if (manager == null)
+            return BaseResponse<string>.ErrorResponse("Manager not found", ErrorCodes.GenericError);
+
+        // Soft delete (set IsActive = false)
+        manager.IsActive = false;
+
+        // Also update GlobalRole if necessary? No, user might still be valid globally. 
+        // But for InstitutionContext they are removed.
+
+        await _context.SaveChangesAsync();
+
+        // Invalidate
+        await _sessionService.InvalidateUserCacheAsync(managerId);
+        await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
+
+        await _auditService.LogAsync(currentUserId, "ManagerRemoved",
+            System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, ManagerId = managerId }));
+
+        return BaseResponse<string>.SuccessResponse("Manager removed successfully");
+    }
 }
+
 
 public class MyInstitutionDto
 {

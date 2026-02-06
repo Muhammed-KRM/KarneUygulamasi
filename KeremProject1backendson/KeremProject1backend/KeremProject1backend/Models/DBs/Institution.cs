@@ -10,9 +10,6 @@ public class Institution
     public string Address { get; set; } = string.Empty;
     public string? Phone { get; set; }
 
-    public int ManagerUserId { get; set; } // Kurucu/Yönetici
-    public User Manager { get; set; } = null!;
-
     public InstitutionStatus Status { get; set; } = InstitutionStatus.PendingApproval;
     public DateTime? SubscriptionStartDate { get; set; }
     public DateTime? SubscriptionEndDate { get; set; }
@@ -23,4 +20,6 @@ public class Institution
 
     // Navigation Properties
     public ICollection<InstitutionUser> Members { get; set; } = new List<InstitutionUser>();
+    public ICollection<InstitutionOwner> Owners { get; set; } = new List<InstitutionOwner>();
 }
+

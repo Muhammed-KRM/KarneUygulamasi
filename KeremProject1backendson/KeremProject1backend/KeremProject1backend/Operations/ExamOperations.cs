@@ -42,6 +42,7 @@ public class ExamOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,
@@ -53,6 +54,27 @@ public class ExamOperations
                 authError.ErrorCode ?? ErrorCodes.AccessDenied);
 
         var userId = _sessionService.GetUserId();
+
+        // Resource Access Control
+        if (!_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+        {
+            var hasAccess = await _authorizationService.HasInstitutionAccessAsync(userId, dto.InstitutionId);
+            // Allow Teachers too for creating exams?
+            // Existing code allowed Teachers. But HasInstitutionAccessAsync only allows Owner/Manager.
+            // We need to allow Teachers if they are in the institution.
+            // Let's modify logic or check separately.
+            if (!hasAccess)
+            {
+                // Check if teacher
+                var isTeacher = await _context.InstitutionUsers.AnyAsync(
+                   iu => iu.InstitutionId == dto.InstitutionId &&
+                         iu.UserId == userId &&
+                         iu.Role == InstitutionRole.Teacher &&
+                         iu.IsActive);
+                if (!isTeacher)
+                    return BaseResponse<int>.ErrorResponse("Bu kurumda işlem yapma yetkiniz yok", ErrorCodes.AccessDenied);
+            }
+        }
 
         var exam = new Exam
         {
@@ -84,6 +106,7 @@ public class ExamOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,
@@ -154,6 +177,7 @@ public class ExamOperations
     {
         // 1. YETKİ KONTROLÜ
         var authError = _authorizationService.RequireGlobalRole(
+            UserRole.InstitutionOwner,
             UserRole.Teacher,
             UserRole.StandaloneTeacher,
             UserRole.Manager,

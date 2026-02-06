@@ -1,0 +1,237 @@
+COMPREHENSIVE INSTITUTION WORKFLOW TEST REPORT (PowerShell)
+===========================================================
+
+--- TEST: Register Owner ---
+Request: POST http://localhost:5070/api/auth/register
+Payload: {
+    "username":  "owner_1770406813",
+    "registerAsOwner":  true,
+    "fullName":  "Test Owner",
+    "email":  "owner_1770406813@test.com",
+    "password":  "Password123!"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Registration successful. You can now log in.",
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Login Owner ---
+Request: POST http://localhost:5070/api/auth/login
+Payload: {
+    "password":  "Password123!",
+    "username":  "owner_1770406813"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  {
+                 "token":  "eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTUxMiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjE0IiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6Im93bmVyXzE3NzA0MDY4MTMiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJvd25lcl8xNzcwNDA2ODEzQHRlc3QuY29tIiwicm9sZSI6Ikluc3RpdHV0aW9uT3duZXIiLCJleHAiOjE3NzEwMDA4MTQsImlzcyI6Ikthcm5lUHJvamVjdCIsImF1ZCI6Ikthcm5lUHJvamVjdCJ9.Y5MBCidVUzdUOx_32pNJBhHwYhMDNZX82xX2d7pCk4blLh6LkBGV1ZSKDp_lF5M1o-8AlYTWm6SXIyBPEJOXSg",
+                 "refreshToken":  "939OH38Xo-eW4Nj8pFpwVXTTTjWcKSfzjMn6p0V9C2w",
+                 "expiresAt":  "2026-02-13T16:40:14.7238337Z",
+                 "refreshTokenExpiresAt":  "2026-03-08T16:40:14.6749331Z",
+                 "user":  {
+                              "id":  14,
+                              "fullName":  "Test Owner",
+                              "username":  "owner_1770406813",
+                              "email":  "owner_1770406813@test.com",
+                              "globalRole":  "InstitutionOwner",
+                              "institutions":  [
+
+                                               ]
+                          }
+             },
+    "error":  null,
+    "errorCode":  null
+}
+Logged in as UserID: 14
+
+--- TEST: Apply Institution ---
+Request: POST http://localhost:5070/api/auth/apply-institution
+Payload: {
+    "licenseNumber":  "LIC1770406813",
+    "phone":  "5551234567",
+    "name":  "Test Inst 1770406813",
+    "address":  "123 Test St"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Application submitted. Waiting for admin approval.",
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Get My Institutions ---
+Request: GET http://localhost:5070/api/institution/my
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  [
+
+             ],
+    "error":  null,
+    "errorCode":  null
+}
+WARNING: No institutions found or failed. Checking Pending Institutions...
+TEST INSIGHT: Checking if owner is in InstitutionUsers...
+
+=== SUMMARY ===
+Check above for details.
+COMPREHENSIVE INSTITUTION WORKFLOW TEST REPORT (PowerShell)
+===========================================================
+
+--- TEST: Register Owner ---
+Request: POST http://localhost:5070/api/auth/register
+Payload: {
+    "username":  "owner_1770406939",
+    "registerAsOwner":  true,
+    "fullName":  "Test Owner",
+    "email":  "owner_1770406939@test.com",
+    "password":  "Password123!"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Registration successful. You can now log in.",
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Login Owner ---
+Request: POST http://localhost:5070/api/auth/login
+Payload: {
+    "password":  "Password123!",
+    "username":  "owner_1770406939"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  {
+                 "token":  "eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTUxMiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjE1IiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6Im93bmVyXzE3NzA0MDY5MzkiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJvd25lcl8xNzcwNDA2OTM5QHRlc3QuY29tIiwicm9sZSI6Ikluc3RpdHV0aW9uT3duZXIiLCJleHAiOjE3NzEwMDA5MzksImlzcyI6Ikthcm5lUHJvamVjdCIsImF1ZCI6Ikthcm5lUHJvamVjdCJ9.A1fiZL-CkdEaAIov96c6uvx68uh0Lcsg8v8xZmdvH6aI8Eme0meV4fEVJudGnd0eIq7zuKDBA0GJjaDkowpwiQ",
+                 "refreshToken":  "L1S6l1XfwjDlrpJb-OwTGovpEmd30etZO2mV4RVvnEI",
+                 "expiresAt":  "2026-02-13T16:42:19.7409175Z",
+                 "refreshTokenExpiresAt":  "2026-03-08T16:42:19.6829157Z",
+                 "user":  {
+                              "id":  15,
+                              "fullName":  "Test Owner",
+                              "username":  "owner_1770406939",
+                              "email":  "owner_1770406939@test.com",
+                              "globalRole":  "InstitutionOwner",
+                              "institutions":  [
+
+                                               ]
+                          }
+             },
+    "error":  null,
+    "errorCode":  null
+}
+Logged in as UserID: 15
+
+--- TEST: Apply Institution ---
+Request: POST http://localhost:5070/api/auth/apply-institution
+Payload: {
+    "licenseNumber":  "LIC1770406939",
+    "phone":  "5551234567",
+    "name":  "Test Inst 1770406939",
+    "address":  "123 Test St"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Application submitted. Waiting for admin approval.",
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Get My Institutions ---
+Request: GET http://localhost:5070/api/institution/my
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  [
+                 {
+                     "id":  5,
+                     "name":  "Test Inst 1770406939",
+                     "role":  "Owner",
+                     "status":  "PendingApproval",
+                     "joinedAt":  "2026-02-06T16:42:20.0138371"
+                 }
+             ],
+    "error":  null,
+    "errorCode":  null
+}
+Target Institution ID: 5
+
+--- TEST: Create Manager ---
+Request: POST http://localhost:5070/api/institution/5/managers
+Payload: {
+    "email":  "manager_1770406939@test.com",
+    "fullName":  "Test Manager",
+    "password":  "Password123!",
+    "phone":  "5559876543"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  16,
+    "error":  null,
+    "errorCode":  null
+}
+Created Manager ID: 16
+
+--- TEST: List Managers ---
+Request: GET http://localhost:5070/api/institution/5/members?role=Manager
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  {
+                 "items":  [
+                               {
+                                   "id":  4,
+                                   "userId":  16,
+                                   "fullName":  "Test Manager",
+                                   "username":  "manager_1770406939@test.com",
+                                   "role":  1,
+                                   "number":  "MNG-3318",
+                                   "isActive":  true
+                               }
+                           ],
+                 "total":  1,
+                 "page":  1,
+                 "limit":  20,
+                 "totalPages":  1
+             },
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Update Manager ---
+Request: PUT http://localhost:5070/api/institution/5/managers/16
+Payload: {
+    "email":  "updated_manager_1770406939@test.com",
+    "fullName":  "Updated Manager Name",
+    "phone":  "5550001111"
+}
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Manager updated successfully",
+    "error":  null,
+    "errorCode":  null
+}
+
+--- TEST: Delete Manager ---
+Request: DELETE http://localhost:5070/api/institution/5/managers/16
+Response Status: Success (200 OK assumed from Invoke-RestMethod)
+Response Body: {
+    "success":  true,
+    "data":  "Manager removed successfully",
+    "error":  null,
+    "errorCode":  null
+}
+
+=== SUMMARY ===
+Check above for details.

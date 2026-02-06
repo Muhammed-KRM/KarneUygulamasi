@@ -28,7 +28,7 @@ public class SessionService
         _context = context;
     }
 
-    public string GenerateToken(User user, List<InstitutionUser> memberships)
+    public virtual string GenerateToken(User user, List<InstitutionUser> memberships)
     {
         var claims = new List<Claim>
         {
@@ -61,7 +61,7 @@ public class SessionService
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 
-    public int GetUserId()
+    public virtual int GetUserId()
     {
         var user = _httpContextAccessor.HttpContext?.User;
         if (user == null) throw new UnauthorizedAccessException("HttpContext not found");
@@ -74,14 +74,14 @@ public class SessionService
         return userId;
     }
 
-    public bool IsInGlobalRole(UserRole role)
+    public virtual bool IsInGlobalRole(UserRole role)
     {
         var user = _httpContextAccessor.HttpContext?.User;
         var roleClaim = user?.FindFirst("role")?.Value;
         return roleClaim == role.ToString();
     }
 
-    public int GetCurrentUserId(ClaimsPrincipal user)
+    public virtual int GetCurrentUserId(ClaimsPrincipal user)
     {
         var userIdClaim = user.FindFirst(ClaimTypes.NameIdentifier);
         if (userIdClaim == null || !int.TryParse(userIdClaim.Value, out int userId))
@@ -91,12 +91,12 @@ public class SessionService
         return userId;
     }
 
-    public string? GetInstitutionRole(ClaimsPrincipal user, int institutionId)
+    public virtual string? GetInstitutionRole(ClaimsPrincipal user, int institutionId)
     {
         return user.FindFirst($"inst_{institutionId}")?.Value;
     }
 
-    public async Task<UserPermissions> GetUserPermissionsAsync(int userId)
+    public virtual async Task<UserPermissions> GetUserPermissionsAsync(int userId)
     {
         string cacheKey = $"user_perms_{userId}";
 
@@ -121,7 +121,7 @@ public class SessionService
         }, TimeSpan.FromHours(1)) ?? null!;
     }
 
-    public async Task InvalidateUserCacheAsync(int userId)
+    public virtual async Task InvalidateUserCacheAsync(int userId)
     {
         string cacheKey = $"user_perms_{userId}";
         await _cacheService.RemoveAsync(cacheKey);

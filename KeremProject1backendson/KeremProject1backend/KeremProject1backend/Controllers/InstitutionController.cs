@@ -98,6 +98,33 @@ public class InstitutionController : BaseController
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    [HttpPost("{id}/managers")]
+    public async Task<IActionResult> CreateManager(int id, [FromBody] CreateManagerRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.CreateManagerAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpPut("{id}/managers/{managerId}")]
+    public async Task<IActionResult> UpdateManager(int id, int managerId, [FromBody] UpdateUserRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.UpdateManagerAsync(id, managerId, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    [HttpDelete("{id}/managers/{managerId}")]
+    public async Task<IActionResult> RemoveManager(int id, int managerId)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.RemoveManagerAsync(id, managerId, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }
 
 

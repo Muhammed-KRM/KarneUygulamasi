@@ -1,0 +1,297 @@
+﻿================================================================================
+                    COMPREHENSIVE TEST RESULTS
+================================================================================
+Test Date: 2026-02-06 14:16:31
+Base URL: http://localhost:5070/api
+================================================================================
+
+
+================================================================================
+  TEST #1 : Login System Admin (AdminAdmin)
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/login
+  Has Token: NO
+  Body:
+{
+    "password":  "Admin123!",
+    "username":  "admin"
+}
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  {
+                 "token":  "eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTUxMiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1lIjoiYWRtaW4iLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJhZG1pbkBrYXJuZXByb2plY3QuY29tIiwicm9sZSI6IkFkbWluQWRtaW4iLCJleHAiOjE3NzA5ODEzOTMsImlzcyI6Ikthcm5lUHJvamVjdCIsImF1ZCI6Ikthcm5lUHJvamVjdCJ9.BLxspIJUSonz9EuaPS9H30YfmEL1F5XefLywz3B4x8qj3pbOBAXCp3WGqza5sNck3YKkO-UIIjy5O2dkkAb5Uw",
+                 "refreshToken":  "o6DNzEgyJc6y20oDuWOFv4-uYeUve696uNcQA53UzYk",
+                 "expiresAt":  "2026-02-13T11:16:33.4470788Z",
+                 "refreshTokenExpiresAt":  "2026-03-08T11:16:33.3048563Z",
+                 "user":  {
+                              "id":  1,
+                              "fullName":  "System Admin",
+                              "username":  "admin",
+                              "email":  "admin@karneproject.com",
+                              "globalRole":  "AdminAdmin",
+                              "institutions":  [
+
+                                               ]
+                          }
+             },
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: AdminAdmin Login
+
+================================================================================
+  TEST #2 : Create New Admin using AdminAdmin
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/admin/create-admin
+  Has Token: YES (included in headers)
+  Body:
+{
+    "username":  "admin_1770387393,52661",
+    "fullName":  "New Admin User",
+    "email":  "admin_1770387393,52661@test.com",
+    "role":  1,
+    "password":  "Password123!"
+}
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  12,
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: Create Admin Account
+
+================================================================================
+  TEST #3 : Login as New Admin
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/login
+  Has Token: NO
+  Body:
+{
+    "password":  "Password123!",
+    "username":  "admin_1770387393,52661"
+}
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  {
+                 "token":  "eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTUxMiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEyIiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6ImFkbWluXzE3NzAzODczOTMsNTI2NjEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJhZG1pbl8xNzcwMzg3MzkzLDUyNjYxQHRlc3QuY29tIiwicm9sZSI6IkFkbWluIiwiZXhwIjoxNzcwOTgxMzkzLCJpc3MiOiJLYXJuZVByb2plY3QiLCJhdWQiOiJLYXJuZVByb2plY3QifQ.nPAj1-hzIs1Ffa2yXT2ZjK5jW0XAhKlQ-mhVULqNFX35Ja1CpmdXao_XpuBIUUacij-Qt1uOc8ZRsHyzC4OlAA",
+                 "refreshToken":  "nd4GSGnOgbucEhejeyp8C-FPzHXmU3hXWGWeCX-mgxk",
+                 "expiresAt":  "2026-02-13T11:16:33.7676134Z",
+                 "refreshTokenExpiresAt":  "2026-03-08T11:16:33.7636439Z",
+                 "user":  {
+                              "id":  12,
+                              "fullName":  "New Admin User",
+                              "username":  "admin_1770387393,52661",
+                              "email":  "admin_1770387393,52661@test.com",
+                              "globalRole":  "Admin",
+                              "institutions":  [
+
+                                               ]
+                          }
+             },
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: New Admin Login
+
+================================================================================
+  TEST #4 : Register Manager User
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/register
+  Has Token: NO
+  Body:
+{
+    "username":  "manager_test_1770387393,8081",
+    "fullName":  "Test Manager",
+    "email":  "manager_test_1770387393,8081@test.com",
+    "phoneNumber":  "5550001122",
+    "password":  "Password123!"
+}
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  "Registration successful. You can now log in.",
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: Register Manager Account
+
+================================================================================
+  TEST #5 : Login Manager User
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/login
+  Has Token: NO
+  Body:
+{
+    "password":  "Password123!",
+    "username":  "manager_test_1770387393,8081"
+}
+
+[RESPONSE]
+  Status: âŒ FAILED
+  HTTP Code: N/A
+  Body:
+""
+
+[RESULT] âŒ FAIL: Manager Login
+[ERROR] İşlem, başka bir işlem tarafından kullanıldığından 'D:\KarneProject\KeremProject1backendson\KeremProject1backend\KeremProject1backend\tests\comprehensive_test_results.txt' dosyasına erişemiyor.
+
+================================================================================
+  TEST #6 : Apply for Institution
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/apply-institution
+  Has Token: NO
+  Body:
+{
+    "licenseNumber":  "LIC-1770387394,03942",
+    "phone":  "5551112233",
+    "name":  "Test Institution 1770387394,03942",
+    "address":  "123 Test St"
+}
+
+[RESPONSE]
+  Status: âŒ FAILED
+  HTTP Code: 401
+  Body:
+"{\"success\":false,\"data\":null,\"error\":\"Unauthorized: Session invalid or missing\",\"errorCode\":\"100000\"}"
+
+[RESULT] âŒ FAIL: Institution Application
+[ERROR] Uzak sunucu hata döndürdü: (401) Onaylanmadı.
+
+================================================================================
+  TEST #7 : Get Pending Institutions
+================================================================================
+
+[REQUEST]
+  Method: GET
+  URL: http://localhost:5070/api/admin/pending-institutions
+  Has Token: YES (included in headers)
+  Body:
+    (no body)
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  [
+
+             ],
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: List Pending Institutions
+
+================================================================================
+  TEST #8 : Create Classroom
+================================================================================
+
+[REQUEST]
+  Method: POST
+  URL: http://localhost:5070/api/auth/login
+  Has Token: NO
+  Body:
+{
+    "password":  "Password123!",
+    "username":  "manager_test_1770387393,8081"
+}
+
+[RESPONSE]
+  Status: âœ… SUCCESS
+  HTTP Code: 200
+  Body:
+{
+    "success":  true,
+    "data":  {
+                 "token":  "eyJhbGciOiJodHRwOi8vd3d3LnczLm9yZy8yMDAxLzA0L3htbGRzaWctbW9yZSNobWFjLXNoYTUxMiIsInR5cCI6IkpXVCJ9.eyJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9uYW1laWRlbnRpZmllciI6IjEzIiwiaHR0cDovL3NjaGVtYXMueG1sc29hcC5vcmcvd3MvMjAwNS8wNS9pZGVudGl0eS9jbGFpbXMvbmFtZSI6Im1hbmFnZXJfdGVzdF8xNzcwMzg3MzkzLDgwODEiLCJodHRwOi8vc2NoZW1hcy54bWxzb2FwLm9yZy93cy8yMDA1LzA1L2lkZW50aXR5L2NsYWltcy9lbWFpbGFkZHJlc3MiOiJtYW5hZ2VyX3Rlc3RfMTc3MDM4NzM5Myw4MDgxQHRlc3QuY29tIiwicm9sZSI6IlN0dWRlbnQiLCJleHAiOjE3NzA5ODEzOTQsImlzcyI6Ikthcm5lUHJvamVjdCIsImF1ZCI6Ikthcm5lUHJvamVjdCJ9.mEGao4GGv-5dujxj2fSEHzSptI9AIxTVepy_z3EJxb9D-rTEl64UZdjJUatfoaZCvBQtgB-i9R1ezprdCc_jgg",
+                 "refreshToken":  "mRg5Os8-VXp4lv4vVLKHafHnshVT6JhtHgAOLYnsRrs",
+                 "expiresAt":  "2026-02-13T11:16:34.4384599Z",
+                 "refreshTokenExpiresAt":  "2026-03-08T11:16:34.4342654Z",
+                 "user":  {
+                              "id":  13,
+                              "fullName":  "Test Manager",
+                              "username":  "manager_test_1770387393,8081",
+                              "email":  "manager_test_1770387393,8081@test.com",
+                              "globalRole":  "Student",
+                              "institutions":  [
+
+                                               ]
+                          }
+             },
+    "error":  null,
+    "errorCode":  null
+}
+
+[RESULT] âœ… PASS: Re-login Manager (to get updated token)
+
+
+================================================================================
+                              TEST SUMMARY
+================================================================================
+
+Total Tests:   8
+Passed:        6 ✅
+Failed:        2 ❌
+Success Rate:  75%
+
+================================================================================
+                         ENDPOINT TEST RESULTS
+================================================================================
+
+✅ ÇALIŞAN ENDPOINTLER:
+  ✅ POST /api/auth/login                    | AdminAdmin Login
+  ✅ POST /api/admin/create-admin            | Create Admin Account
+  ✅ POST /api/auth/login                    | New Admin Login
+  ✅ POST /api/auth/register                 | Register Manager Account
+  ✅ GET  /api/admin/pending-institutions    | List Pending Institutions
+  ✅ POST /api/auth/login                    | Re-login Manager
+
+❌ ÇALIŞMAYAN ENDPOINTLER:
+  ❌ POST /api/auth/login                    | Manager Login (File locking issue)
+  ❌ POST /api/auth/apply-institution        | Institution Application (401 - Token missing)
+
+================================================================================
+                              END OF REPORT
+================================================================================
