@@ -1,0 +1,252 @@
+============================================================
+KAPSAMLI SENARYO TEST RAPORU
+Tarih: 2026-02-09 14:23:01
+============================================================
+
+OZET: 58 Basarili / 0 Basarisiz / Toplam 58
+
+------------------------------------------------------------
+
+[OK] [2026-02-09 14:23:00] 1.1 AdminAdmin Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:00] 1.2 Admin Oluştur
+   Status: SUCCESS
+   Message: AdminId: 1138
+
+[OK] [2026-02-09 14:23:00] 1.3 AdminAdmin Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:00] 2.1 Sahip1 Kayıt
+   Status: SUCCESS
+   Message: Registration successful
+
+[OK] [2026-02-09 14:23:00] 2.2 Sahip2 Kayıt
+   Status: SUCCESS
+   Message: Registration successful
+
+[OK] [2026-02-09 14:23:00] 2.3 Sahip1 Login
+   Status: SUCCESS
+   Message: Token received, UserId: 1139
+
+[OK] [2026-02-09 14:23:01] 2.4 Sahip1 Kurum Başvurusu
+   Status: SUCCESS
+   Message: Application submitted (will fetch ID in admin step)
+
+[OK] [2026-02-09 14:23:01] 2.5 Sahip1 Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 2.6 Sahip2 Login
+   Status: SUCCESS
+   Message: Token received, UserId: 1140
+
+[OK] [2026-02-09 14:23:01] 2.7 Sahip2 Kurum Başvurusu
+   Status: SUCCESS
+   Message: Application submitted (will fetch ID in admin step)
+
+[OK] [2026-02-09 14:23:01] 2.8 Sahip2 Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 3.1 Admin Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 3.2 Kurum1 Onay
+   Status: SUCCESS
+   Message: Approved Institution1 (1017)
+
+[OK] [2026-02-09 14:23:01] 3.3 Kurum2 Onay
+   Status: SUCCESS
+   Message: Approved Institution2 (1018)
+
+[OK] [2026-02-09 14:23:01] 4.1 Sahip1 Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 4.2 Co-Owner Ekleme
+   Status: SUCCESS
+   Message: Owner2 (1140) added to Institution1
+
+[OK] [2026-02-09 14:23:01] 4.3 Sahip1 Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 5.1 Sahip2 Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 5.2 Kurumları Listele
+   Status: SUCCESS
+   Message: 2 kurum bulundu (beklenen: 2)
+
+[OK] [2026-02-09 14:23:01] 6.1 Yönetici1 Oluştur
+   Status: SUCCESS
+   Message: ManagerId: 1141
+
+[OK] [2026-02-09 14:23:01] 6.2 Yönetici2 Oluştur
+   Status: SUCCESS
+   Message: ManagerId: 1142
+
+[OK] [2026-02-09 14:23:01] 6.3 Sahip2 Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 7.1 Yönetici1 Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 7.2.1 Öğretmen1 Oluştur
+   Status: SUCCESS
+   Message: TeacherId: 1143
+
+[OK] [2026-02-09 14:23:01] 7.2.2 Öğretmen2 Oluştur
+   Status: SUCCESS
+   Message: TeacherId: 1144
+
+[OK] [2026-02-09 14:23:01] 7.2.3 Öğretmen3 Oluştur
+   Status: SUCCESS
+   Message: TeacherId: 1145
+
+[OK] [2026-02-09 14:23:01] 7.2.4 Öğretmen4 Oluştur
+   Status: SUCCESS
+   Message: TeacherId: 1146
+
+[OK] [2026-02-09 14:23:01] 7.2.5 Öğretmen5 Oluştur
+   Status: SUCCESS
+   Message: TeacherId: 1147
+
+[OK] [2026-02-09 14:23:01] 7.3.1 Sınıf1 Oluştur
+   Status: SUCCESS
+   Message: ClassroomId: 14
+
+[OK] [2026-02-09 14:23:01] 7.3.2 Sınıf2 Oluştur
+   Status: SUCCESS
+   Message: ClassroomId: 15
+
+[OK] [2026-02-09 14:23:01] 7.4.1 Öğrenci1 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1148
+
+[OK] [2026-02-09 14:23:01] 7.4.2 Öğrenci2 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1149
+
+[OK] [2026-02-09 14:23:01] 7.4.3 Öğrenci3 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1150
+
+[OK] [2026-02-09 14:23:01] 7.4.4 Öğrenci4 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1151
+
+[OK] [2026-02-09 14:23:01] 7.4.5 Öğrenci5 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1152
+
+[OK] [2026-02-09 14:23:01] 7.4.6 Öğrenci6 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1153
+
+[OK] [2026-02-09 14:23:01] 7.4.7 Öğrenci7 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1154
+
+[OK] [2026-02-09 14:23:01] 7.4.8 Öğrenci8 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1155
+
+[OK] [2026-02-09 14:23:01] 7.4.9 Öğrenci9 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1156
+
+[OK] [2026-02-09 14:23:01] 7.4.10 Öğrenci10 Oluştur
+   Status: SUCCESS
+   Message: StudentId: 1157
+
+[OK] [2026-02-09 14:23:01] 7.5 Öğrenci Listesi
+   Status: SUCCESS
+   Message: 10 öğrenci bulundu
+
+[OK] [2026-02-09 14:23:01] 7.6 Sınıf1 Öğrenci Atama
+   Status: SUCCESS
+   Message: 5 öğrenci atandı
+
+[OK] [2026-02-09 14:23:01] 7.7 Sınıf2 Öğrenci Atama
+   Status: SUCCESS
+   Message: 5 öğrenci atandı
+
+[OK] [2026-02-09 14:23:01] 7.8 Yönetici1 Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 8.1 Öğretmen Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 8.2 Sınav Oluştur
+   Status: SUCCESS
+   Message: ExamId: 7
+
+[OK] [2026-02-09 14:23:01] 8.3 Optik Dosya Oluştur
+   Status: SUCCESS
+   Message: File: optical_files\optical_exam_7.txt
+
+[OK] [2026-02-09 14:23:01] 8.4 Optik Sonuç İşle
+   Status: SUCCESS
+   Message: Results processed
+
+[OK] [2026-02-09 14:23:01] 8.5 Sonuçları Onayla
+   Status: SUCCESS
+   Message: Results confirmed and ranking calculated
+
+[OK] [2026-02-09 14:23:01] 8.6 Sonuçları Getir
+   Status: SUCCESS
+   Message: 5 sonuç bulundu
+
+[OK] [2026-02-09 14:23:01] 8.7 Sonuçları Kaydet
+   Status: SUCCESS
+   Message: File: optical_files\results_exam_7.json
+
+[OK] [2026-02-09 14:23:01] 8.8 Sınıfa Karne Gönder
+   Status: SUCCESS
+   Message: 5 karne gönderildi
+
+[OK] [2026-02-09 14:23:01] 8.9 Öğretmen Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+[OK] [2026-02-09 14:23:01] 9.1 Öğrenci Login
+   Status: SUCCESS
+   Message: Token received
+
+[OK] [2026-02-09 14:23:01] 9.2 Karneleri Getir
+   Status: SUCCESS
+   Message: 1 karne bulundu
+
+[OK] [2026-02-09 14:23:01] 9.3 Karne Detayları
+   Status: SUCCESS
+   Details: {
+    "totalCorrect": 0,
+    "totalWrong": 4,
+    "totalNet": -1,
+    "classRank": 1,
+    "lessons": [
+        "Matematik",
+        "Türkçe"
+    ]
+}
+
+[OK] [2026-02-09 14:23:01] 9.4 Konuşmaları Getir
+   Status: SUCCESS
+   Message: 0 konuşma bulundu
+
+[OK] [2026-02-09 14:23:01] 9.6 Öğrenci Logout
+   Status: SUCCESS
+   Message: Token cleared
+
+============================================================
+TEST TAMAMLANDI

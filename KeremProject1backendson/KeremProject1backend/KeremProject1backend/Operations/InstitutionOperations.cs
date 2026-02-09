@@ -7,6 +7,8 @@ using KeremProject1backend.Models.Enums;
 using KeremProject1backend.Services;
 using Microsoft.EntityFrameworkCore;
 using KeremProject1backend.Core.Helpers;
+using KeremProject1backend.Controllers;
+
 
 namespace KeremProject1backend.Operations;
 
@@ -595,7 +597,171 @@ public class InstitutionOperations
 
         return BaseResponse<string>.SuccessResponse("Manager removed successfully");
     }
+
+    /// <summary>
+    /// Kuruma ikinci bir sahip (co-owner) ekler
+    /// </summary>
+    public async Task<BaseResponse<bool>> AddOwnerAsync(int institutionId, int newOwnerUserId, int requestedByUserId)
+    {
+        // Authorization: Only existing owner or AdminAdmin can add co-owner
+        var isOwner = await IsOwnerAsync(institutionId, requestedByUserId);
+        if (!isOwner && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<bool>.ErrorResponse("Access denied. Only owners can add co-owners.", ErrorCodes.AccessDenied);
+
+        // Check if user exists
+        var user = await _context.Users.FindAsync(newOwnerUserId);
+        if (user == null)
+            return BaseResponse<bool>.ErrorResponse("User not found", ErrorCodes.GenericError);
+
+        // Check if already an owner
+        var alreadyOwner = await _context.InstitutionOwners.AnyAsync(
+            io => io.InstitutionId == institutionId && io.UserId == newOwnerUserId);
+        if (alreadyOwner)
+            return BaseResponse<bool>.ErrorResponse("User is already an owner of this institution", "ALREADY_OWNER");
+
+        // Add new owner
+        var ownership = new InstitutionOwner
+        {
+            UserId = newOwnerUserId,
+            InstitutionId = institutionId,
+            IsPrimaryOwner = false,
+            AddedAt = DateTime.UtcNow,
+            AddedByUserId = requestedByUserId
+        };
+
+        _context.InstitutionOwners.Add(ownership);
+
+        // Update user's GlobalRole if not already InstitutionOwner
+        if (user.GlobalRole != UserRole.InstitutionOwner && user.GlobalRole != UserRole.AdminAdmin)
+        {
+            user.GlobalRole = UserRole.InstitutionOwner;
+        }
+
+        await _context.SaveChangesAsync();
+
+        // Invalidate cache
+        await _sessionService.InvalidateUserCacheAsync(newOwnerUserId);
+        await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
+
+        await _auditService.LogAsync(requestedByUserId, "OwnerAdded",
+            System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, NewOwnerId = newOwnerUserId }));
+
+        return BaseResponse<bool>.SuccessResponse(true);
+    }
+
+    /// <summary>
+    /// Kurum için yeni öğretmen hesabı oluşturur
+    /// </summary>
+    public async Task<BaseResponse<int>> CreateTeacherAsync(int institutionId, CreateTeacherRequest request, int createdByUserId)
+    {
+        // Authorization: Only owner or manager can create teacher
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, createdByUserId);
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<int>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
+
+        // Check if email exists
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            return BaseResponse<int>.ErrorResponse("Email already registered", "USER_EXISTS");
+
+        // Hash password
+        PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
+
+        // Create User
+        var user = new User
+        {
+            FullName = request.FullName,
+            Email = request.Email,
+            Username = request.Email,
+            PasswordHash = hash,
+            PasswordSalt = salt,
+            Phone = request.Phone,
+            GlobalRole = UserRole.Teacher,
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        // Add to Institution as Teacher
+        var institutionUser = new InstitutionUser
+        {
+            UserId = user.Id,
+            InstitutionId = institutionId,
+            Role = InstitutionRole.Teacher,
+            IsActive = true,
+            JoinedAt = DateTime.UtcNow,
+            EmployeeNumber = request.EmployeeNumber ?? "TCH-" + new Random().Next(1000, 9999)
+        };
+
+        _context.InstitutionUsers.Add(institutionUser);
+        await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(createdByUserId, "TeacherCreated",
+            System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, NewTeacherId = user.Id }));
+
+        await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
+
+        return BaseResponse<int>.SuccessResponse(user.Id);
+    }
+
+    /// <summary>
+    /// Kurum için yeni öğrenci hesabı oluşturur
+    /// </summary>
+    public async Task<BaseResponse<int>> CreateStudentAsync(int institutionId, CreateStudentRequest request, int createdByUserId)
+    {
+        // Authorization: Only owner or manager can create student
+        var hasAccess = await IsOwnerOrManagerAsync(institutionId, createdByUserId);
+        if (!hasAccess && !_sessionService.IsInGlobalRole(UserRole.AdminAdmin))
+            return BaseResponse<int>.ErrorResponse("Access denied", ErrorCodes.AccessDenied);
+
+        // Check if email exists
+        if (await _context.Users.AnyAsync(u => u.Email == request.Email))
+            return BaseResponse<int>.ErrorResponse("Email already registered", "USER_EXISTS");
+
+        // Hash password
+        PasswordHelper.CreateHash(request.Password, out byte[] hash, out byte[] salt);
+
+        // Create User
+        var user = new User
+        {
+            FullName = request.FullName,
+            Email = request.Email,
+            Username = request.Email,
+            PasswordHash = hash,
+            PasswordSalt = salt,
+            Phone = request.Phone,
+            GlobalRole = UserRole.Student,
+            Status = UserStatus.Active,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _context.Users.Add(user);
+        await _context.SaveChangesAsync();
+
+        // Add to Institution as Student
+        var institutionUser = new InstitutionUser
+        {
+            UserId = user.Id,
+            InstitutionId = institutionId,
+            Role = InstitutionRole.Student,
+            IsActive = true,
+            JoinedAt = DateTime.UtcNow,
+            StudentNumber = request.StudentNumber
+        };
+
+        _context.InstitutionUsers.Add(institutionUser);
+        await _context.SaveChangesAsync();
+
+        await _auditService.LogAsync(createdByUserId, "StudentCreated",
+            System.Text.Json.JsonSerializer.Serialize(new { InstitutionId = institutionId, NewStudentId = user.Id }));
+
+        await _cacheService.RemoveByPatternAsync($"institution_detail_{institutionId}");
+
+        return BaseResponse<int>.SuccessResponse(user.Id);
+    }
 }
+
 
 
 public class MyInstitutionDto

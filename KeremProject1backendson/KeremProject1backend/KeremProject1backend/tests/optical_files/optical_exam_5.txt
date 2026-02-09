@@ -1,0 +1,5 @@
+101       Öğrenci 1                AABCDE
+102       Öğrenci 2                AABCDX
+103       Öğrenci 3                AABXDE
+104       Öğrenci 4                AAXCDE
+105       Öğrenci 5                AXBCDE

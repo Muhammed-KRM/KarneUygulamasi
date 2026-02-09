@@ -1,0 +1,5 @@
+STU001    Öğrenci 1                AABCDE
+STU002    Öğrenci 2                AABCDX
+STU003    Öğrenci 3                AABXDE
+STU004    Öğrenci 4                AAXCDE
+STU005    Öğrenci 5                AXBCDE

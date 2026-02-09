@@ -125,6 +125,42 @@ public class InstitutionController : BaseController
         if (!result.Success) return BadRequest(result);
         return Ok(result);
     }
+
+    /// <summary>
+    /// Kuruma ikinci bir sahip (co-owner) ekler
+    /// </summary>
+    [HttpPost("{id}/add-owner")]
+    public async Task<IActionResult> AddOwner(int id, [FromBody] AddOwnerRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.AddOwnerAsync(id, request.UserId, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kurum için yeni öğretmen hesabı oluşturur
+    /// </summary>
+    [HttpPost("{id}/create-teacher")]
+    public async Task<IActionResult> CreateTeacher(int id, [FromBody] CreateTeacherRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.CreateTeacherAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Kurum için yeni öğrenci hesabı oluşturur
+    /// </summary>
+    [HttpPost("{id}/create-student")]
+    public async Task<IActionResult> CreateStudent(int id, [FromBody] CreateStudentRequest request)
+    {
+        var userId = GetCurrentUserId();
+        var result = await _institutionOperations.CreateStudentAsync(id, request, userId);
+        if (!result.Success) return BadRequest(result);
+        return Ok(result);
+    }
 }
 
 
@@ -133,3 +169,25 @@ public class UpdateMemberRoleRequest
     public InstitutionRole Role { get; set; }
 }
 
+public class AddOwnerRequest
+{
+    public int UserId { get; set; }
+}
+
+public class CreateTeacherRequest
+{
+    public required string FullName { get; set; }
+    public required string Email { get; set; }
+    public required string Password { get; set; }
+    public string? Phone { get; set; }
+    public string? EmployeeNumber { get; set; }
+}
+
+public class CreateStudentRequest
+{
+    public required string FullName { get; set; }
+    public required string Email { get; set; }
+    public required string Password { get; set; }
+    public string? Phone { get; set; }
+    public required string StudentNumber { get; set; }
+}
